@@ -16,12 +16,6 @@ struct {
         struct {
             GfxPipeline pipeline;
             GfxShader shader;
-            struct {
-                struct {
-                    GfxImage::Handle image;
-                    GfxSampler::Handle sampler;
-                } matcap;
-            } resources;
         } matcap_debug;
     } materials;
 
@@ -56,6 +50,19 @@ void init_shader<MatcapDebug>()
     mat.shader.init(matcap_debug_shader_desc(vert->src.c_str(), frag->src.c_str()));
 }
 
+template <typename Material>
+void init_material();
+
+template <>
+void init_material<MatcapDebug>()
+{
+    auto& mat = state.materials.matcap_debug;
+    assert(!mat.pipeline.is_valid());
+
+    init_shader<MatcapDebug>();
+    mat.pipeline = GfxPipeline::make(matcap_debug_pipeline_desc(mat.shader));
+}
+
 template <typename T>
 sg_range to_range(Span<T> const& span)
 {
@@ -72,10 +79,22 @@ void update_buffer(GfxBuffer& buf, GfxBuffer::Desc const& desc)
 
 } // namespace
 
-void init_materials()
+void init_graphics()
 {
-    MatcapDebug::init();
+    // Initialize materials
+    init_material<MatcapDebug>();
     // ...
+
+    // Initialize shared resources
+    {
+        {
+            ImageAsset const* image = get_asset(AssetHandle::Image_Matcap);
+            state.images.matcap = GfxImage::make(
+                matcap_image_desc(image->data.get(), image->width, image->height));
+        }
+
+        state.samplers.matcap = GfxSampler::make(matcap_sampler_desc());
+    }
 }
 
 void reload_shaders()
@@ -90,7 +109,7 @@ void reload_shaders()
 void RenderMesh::set_vertex_capacity(isize const value)
 {
     update_buffer(vertices[0], vertex_buffer_desc(value * sizeof(f32[6])));
-    update_buffer(vertices[1], vertex_buffer_desc(value * sizeof(f32[2])));
+    update_buffer(vertices[1], vertex_buffer_desc(value * sizeof(f32[3])));
     vertex_capacity = value;
 }
 
@@ -114,7 +133,7 @@ void RenderMesh::set_vertices(
     sg_append_buffer(vertices[0], to_range(normals));
 }
 
-void RenderMesh::set_vertices(Span<Vec2<f32> const> const& tex_coords)
+void RenderMesh::set_vertices(Span<Vec3<f32> const> const& tex_coords)
 {
     vertex_count = tex_coords.size();
     if (vertex_count > vertex_capacity)
@@ -141,35 +160,8 @@ void RenderMesh::bind_resources(sg_bindings& dst) const
     dst.index_buffer = indices;
 }
 
-void RenderMesh::dispatch_draw() const { sg_draw(0, index_count, 1); }
-
 ////////////////////////////////////////////////////////////////////////////////
 // MatcapDebug
-
-void MatcapDebug::init()
-{
-    auto& mat = state.materials.matcap_debug;
-    assert(!mat.pipeline.is_valid());
-
-    init_shader<MatcapDebug>();
-    mat.pipeline = GfxPipeline::make(matcap_debug_pipeline_desc(mat.shader));
-
-    // Initialize shared resources if necessary
-    {
-        if (!state.images.matcap.is_valid())
-        {
-            ImageAsset const* image = get_asset(AssetHandle::Image_Matcap);
-            state.images.matcap = GfxImage::make(
-                matcap_image_desc(image->data.get(), image->width, image->height));
-        }
-
-        if (!state.samplers.matcap.is_valid())
-            state.samplers.matcap = GfxSampler::make(matcap_sampler_desc());
-    }
-
-    mat.resources.matcap.image = state.images.matcap.handle();
-    mat.resources.matcap.sampler = state.samplers.matcap.handle();
-}
 
 GfxPipeline::Handle MatcapDebug::pipeline() { return state.materials.matcap_debug.pipeline; }
 
@@ -181,9 +173,8 @@ void MatcapDebug::apply_uniforms() const
 
 void MatcapDebug::bind_resources(sg_bindings& dst) const
 {
-    auto& res = state.materials.matcap_debug.resources;
-    dst.fs.images[0] = res.matcap.image;
-    dst.fs.samplers[0] = res.matcap.sampler;
+    dst.fs.images[0] = state.images.matcap;
+    dst.fs.samplers[0] = state.samplers.matcap;
 }
 
 } // namespace dr

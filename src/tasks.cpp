@@ -27,8 +27,8 @@ void transform_tex_coords(Span<Vec2<f32>> const& tex_coords, Vec2<i32> const& re
     auto const [v0, v1] = expand(ref_verts);
     Vec2<f32> const d = tex_coords[v1] - tex_coords[v0];
 
-    // Align ref verts to y axis and center on origin
-    Mat2<f32> const r_s = mat(perp_ccw(d), d).transpose() / d.squaredNorm();
+    // Align ref verts to x axis and center on origin
+    Mat2<f32> const r_s = mat(d, perp_ccw(d)).transpose() / d.squaredNorm();
     Vec2<f32> const t = -(tex_coords[v0] + d * 0.5f);
     for (auto& p : tex_coords)
         p = r_s * (p + t);

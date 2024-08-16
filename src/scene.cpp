@@ -51,7 +51,7 @@ struct {
 
     struct {
         MeshAsset const* mesh;
-        DynamicArray<Vec2<f32>> tex_coords;
+        DynamicArray<Vec3<f32>> tex_coords;
         DynamicArray<Vec2<i32>> boundary_edge_verts;
         Vec2<i32> ref_verts;
     } shape;
@@ -142,10 +142,11 @@ void set_mesh_boundary(Span<Vec2<i32> const> const& boundary_edge_verts)
     }
 };
 
-void set_mesh_tex_coords(Span<Vec2<f32> const> const& tex_coords)
+void set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
 {
-    as_mat(as_span(state.shape.tex_coords)) = as_mat(tex_coords);
-    state.gfx.mesh.set_vertices(tex_coords);
+    auto const dst = as_span(state.shape.tex_coords);
+    as_mat(dst)({0, 1}, Eigen::all) = as_mat(tex_coords);
+    state.gfx.mesh.set_vertices(dst);
 }
 
 void schedule_task(LoadMeshAsset& task)
@@ -218,7 +219,7 @@ void schedule_task(SolveTexCoords& task)
             };
             case Event::AfterComplete:
             {
-                set_mesh_tex_coords(task->output.tex_coords);
+                set_tex_coords(task->output.tex_coords);
                 return true;
             };
             default:
@@ -431,30 +432,17 @@ void debug_draw_mesh_boundary(Mat4<f32> const& local_to_view)
     sgl_begin_lines();
     sgl_c3f(1.0f, 1.0f, 1.0f);
 
-    if (state.params.flatten)
+    auto const v_p = state.params.flatten //
+        ? as_span(state.shape.tex_coords)
+        : as_span(state.shape.mesh->vertices.positions);
+
+    for (auto const& e_v : state.shape.boundary_edge_verts)
     {
+        auto const& p0 = v_p[e_v[0]];
+        sgl_v3f(p0.x(), p0.y(), p0.z());
 
-        auto const& v_p = state.shape.tex_coords;
-        for (auto const& e_v : state.shape.boundary_edge_verts)
-        {
-            auto const& p0 = v_p[e_v[0]];
-            sgl_v3f(0.0f, p0.x(), p0.y());
-
-            auto const& p1 = v_p[e_v[1]];
-            sgl_v3f(0.0f, p1.x(), p1.y());
-        }
-    }
-    else
-    {
-        auto const& v_p = as_span(state.shape.mesh->vertices.positions);
-        for (auto const& e_v : state.shape.boundary_edge_verts)
-        {
-            auto const& p0 = v_p[e_v[0]];
-            sgl_v3f(p0.x(), p0.y(), p0.z());
-
-            auto const& p1 = v_p[e_v[1]];
-            sgl_v3f(p1.x(), p1.y(), p1.z());
-        }
+        auto const& p1 = v_p[e_v[1]];
+        sgl_v3f(p1.x(), p1.y(), p1.z());
     }
 
     sgl_end();
@@ -481,7 +469,7 @@ void draw_debug(
 void open(void* /*context*/)
 {
     thread_pool_start(1);
-    init_materials();
+    init_graphics();
 
     // Load default mesh asset and solve
     on_mesh_asset_change();
@@ -516,7 +504,11 @@ void draw(void* /*context*/)
         {
             if (state.params.flatten)
             {
-                return make_scale(vec<3>(2.0f));
+                static Mat3<f32> const r_s = //
+                    mat(vec(0.0f, 0.0f, 1.0f), vec(0.0f, 1.0f, 0.0f), vec(-1.0f, 0.0f, 0.0f))
+                    * mat<3>(2.0f);
+
+                return make_affine(r_s);
             }
             else
             {
@@ -548,11 +540,14 @@ void draw(void* /*context*/)
             // Update params
             as_mat<4, 4>(mat.params.vertex.local_to_clip) = view_to_clip * local_to_view;
             as_mat<4, 4>(mat.params.vertex.local_to_view) = local_to_view;
-            mat.params.vertex.flatten = state.params.flatten;
             mat.params.fragment.tex_scale = state.params.tex_scale.value;
         }
         pass.set_material(mat);
-        pass.draw_geometry(state.gfx.mesh);
+
+        if (state.params.flatten)
+            pass.draw_geometry(FlattenedRenderMesh{&state.gfx.mesh});
+        else
+            pass.draw_geometry(state.gfx.mesh);
     }
 
     draw_debug(world_to_view, local_to_view, view_to_clip);

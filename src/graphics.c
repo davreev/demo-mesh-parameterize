@@ -9,8 +9,7 @@ sg_shader_desc matcap_debug_shader_desc(char const* const vs_src, char const* co
             .uniform_blocks[0] = {
                 .uniforms[0] = {.name = "u_local_to_clip", .type = SG_UNIFORMTYPE_MAT4},
                 .uniforms[1] = {.name = "u_local_to_view", .type = SG_UNIFORMTYPE_MAT4},
-                .uniforms[2] = {.name = "u_flatten", .type = SG_UNIFORMTYPE_INT},
-                .size = (16 * 2 + 1) * 4,
+                .size = 16 * 2 * sizeof(float),
             },
         },
         .fs = {
@@ -40,7 +39,7 @@ sg_pipeline_desc matcap_debug_pipeline_desc(sg_shader const shader)
         .layout = {
             .attrs[0] = {.buffer_index = 0, .format = SG_VERTEXFORMAT_FLOAT3},
             .attrs[1] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT3},
-            .attrs[2] = {.buffer_index = 2, .format = SG_VERTEXFORMAT_FLOAT2},
+            .attrs[2] = {.buffer_index = 2, .format = SG_VERTEXFORMAT_FLOAT3},
         },
         .depth = {
             .compare = SG_COMPAREFUNC_LESS,

@@ -98,7 +98,7 @@ convert_shaders(gen_asset_files)
 
 set(
     asset_files
-    "${src_dir}/assets/images/matcap-white.jpg"
+    "${src_dir}/assets/images/matcap-white-soft.png"
     "${src_dir}/assets/models/human-head.ply"
     "${src_dir}/assets/models/pig-head.ply"
     "${src_dir}/assets/models/camel-head.ply"

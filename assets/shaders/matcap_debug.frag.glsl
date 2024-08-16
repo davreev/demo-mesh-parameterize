@@ -52,7 +52,7 @@ vec3 matcap_shade(vec3 base_color, vec3 view_normal, float intensity, float neut
 void main() 
 {
     vec3 base_col = proc_tex_aa(v_tex_coord / u_tex_scale);
-    vec3 col = matcap_shade(base_col, normalize(v_view_normal), 1.3, 0.95);
+    vec3 col = matcap_shade(base_col, normalize(v_view_normal), 1.2, 0.95);
 
     if(gl_FrontFacing)
         col *= 0.5;
