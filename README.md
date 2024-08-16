@@ -2,7 +2,7 @@
 
 ![](https://github.com/davreev/demo-mesh-parameterize/actions/workflows/build.yml/badge.svg)
 
-Source code for https://github.com/davreev/demo-mesh-parameterize
+Source code for https://davreev.gitlab.io/demos/mesh-parameterize/
 
 ## Build
 
