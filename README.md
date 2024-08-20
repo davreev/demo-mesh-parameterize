@@ -2,7 +2,13 @@
 
 ![](https://github.com/davreev/demo-mesh-parameterize/actions/workflows/build.yml/badge.svg)
 
-Source code for https://davreev.gitlab.io/demos/mesh-parameterize/
+Demo and reference implementations of mesh parameterization methods [^1] [^2] for automated UV
+mapping of triangle meshes.
+
+Try it here: https://davreev.gitlab.io/demos/mesh-parameterize/
+
+[^1]: [Least squares conformal maps](https://www.cs.jhu.edu/~misha/Fall09/Levy02.pdf)  
+[^2]: [Spectral conformal parameterization](https://hal.inria.fr/inria-00334477/document)
 
 ## Build
 
@@ -40,8 +46,8 @@ Then build via `emcmake`
 
 ```sh
 mkdir build 
-emcmake cmake -S . -B ./build -DCMAKE_BUILD_TYPE=<config>
-cmake --build ./build
+emcmake cmake -S . -B ./build -G <generator>
+cmake --build ./build [--config <config>]
 ```
 
 Output can be served locally for testing e.g.
