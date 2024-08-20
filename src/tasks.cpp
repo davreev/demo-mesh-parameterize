@@ -11,27 +11,13 @@ void collect_boundary_edge_verts(
     DynamicArray<Vec2<i32>>& result)
 {
     result.clear();
-    const isize num_edges = edge_faces.size();
+    isize const num_edges = edge_faces.size();
 
     for (isize e = 0; e < num_edges; ++e)
     {
         if (edge_faces[e] == invalid_index<i32>)
             result.push_back({edge_start_verts[e], edge_start_verts[e ^ 1]});
     }
-}
-
-void transform_tex_coords(Span<Vec2<f32>> const& tex_coords, Vec2<i32> const& ref_verts)
-{
-    constexpr auto perp_ccw = [](Vec2<f32> const& a) { return vec(-a[1], a[0]); };
-
-    auto const [v0, v1] = expand(ref_verts);
-    Vec2<f32> const d = tex_coords[v1] - tex_coords[v0];
-
-    // Align ref verts to x axis and center on origin
-    Mat2<f32> const r_s = mat(d, perp_ccw(d)).transpose() / d.squaredNorm();
-    Vec2<f32> const t = -(tex_coords[v0] + d * 0.5f);
-    for (auto& p : tex_coords)
-        p = r_s * (p + t);
 }
 
 } // namespace
@@ -47,7 +33,7 @@ void ExtractMeshBoundary::operator()()
     auto const tri_verts = as_span(input.mesh->faces.vertex_ids);
     VertsToEdge<i32>::make_from_tris(tri_verts, verts_to_edge_);
 
-    const isize num_edges = verts_to_edge_.size();
+    isize const num_edges = verts_to_edge_.size();
     edge_tris_.resize(num_edges);
     collect_edge_tris(tri_verts, verts_to_edge_, as_span(edge_tris_));
 
@@ -84,24 +70,25 @@ void SolveTexCoords::operator()()
         case Method_LeastSquaresConformal:
         {
             auto& solver = solvers_.lscm;
-            solver.init(
+            bool const ok = solver.init(
                 as_span(input.mesh->vertices.positions),
                 as_span(input.mesh->faces.vertex_ids),
-                input.boundary_edge_verts);
+                input.boundary_edge_verts,
+                input.ref_verts);
 
-            // Set positions of fixed vertices
-            as_mat(tc)(Eigen::all, input.ref_verts) = //
-                mat(col(0.0f, -1.0f), col(0.0f, 1.0f));
-
-            // Solve for remaining vertices
-            if (!solver.solve(input.ref_verts, tc))
+            if (!ok)
             {
                 output.tex_coords = {};
                 output.error = Error_SolveFailed;
                 return;
             }
 
-            transform_tex_coords(tc, input.ref_verts);
+            // Assign coords of fixed vertices
+            tc[input.ref_verts[0]] = {-1.0f, 0.0f};
+            tc[input.ref_verts[1]] = {1.0f, 0.0f};
+
+            // Solve for remaining vertices
+            solver.solve(tc);
             break;
         }
         case Method_SpectralConformal:
@@ -119,7 +106,19 @@ void SolveTexCoords::operator()()
                 return;
             }
 
-            transform_tex_coords(tc, input.ref_verts);
+            // Apply conformal xform that places ref verts at (1.0, 0.0) and (-1.0, 0.0)
+            {
+                constexpr auto perp_ccw = [](Vec2<f32> const& a) { return vec(-a[1], a[0]); };
+
+                auto const [v0, v1] = expand(input.ref_verts);
+                Vec2<f32> const d = tc[v1] - tc[v0];
+
+                Mat2<f32> const r_s = mat(d, perp_ccw(d)).transpose() * (2.0f / d.squaredNorm());
+                Vec2<f32> const t = -(tc[v0] + d * 0.5f);
+                
+                for (auto& p : tc)
+                    p = r_s * (p + t);
+            }
             break;
         }
         default:

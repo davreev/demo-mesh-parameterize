@@ -499,22 +499,38 @@ void update(void* /*context*/)
 
 void draw(void* /*context*/)
 {
-    auto const make_local_to_world = [&]() -> Mat4<f32> {
+    constexpr auto make_local_to_world = []() -> Mat4<f32> {
         if (state.shape.mesh)
         {
             if (state.params.flatten)
             {
-                static Mat3<f32> const r_s = //
-                    mat(vec(0.0f, 0.0f, 1.0f), vec(0.0f, 1.0f, 0.0f), vec(-1.0f, 0.0f, 0.0f))
-                    * mat<3>(2.0f);
+                if (state.params.solve_method == SolveTexCoords::Method_None)
+                {
+                    static auto const r = mat(
+                        vec(0.0f, 1.0f, 0.0f),
+                        vec(0.0f, 0.0f, 1.0f),
+                        vec(1.0f, 0.0f, 0.0f));
 
-                return make_affine(r_s);
+                    auto const [cen, rad] = state.shape.mesh->bounds;
+                    f32 const s = 1.0f / rad;
+                    return make_affine(s * r, -cen * s);
+                }
+                else
+                {
+                    static auto const r = mat(
+                        vec(0.0f, 0.0f, 1.0f),
+                        vec(0.0f, 1.0f, 0.0f),
+                        vec(-1.0f, 0.0f, 0.0f));
+
+                    return make_affine(r);
+                }
             }
             else
             {
                 // Fit to unit sphere
                 auto const [cen, rad] = state.shape.mesh->bounds;
-                return make_scale_translate(vec<3>(1.0f / rad), -cen);
+                f32 const s = 1.0f / rad;
+                return make_scale_translate(vec<3>(s), -cen * s);
             }
         }
         else

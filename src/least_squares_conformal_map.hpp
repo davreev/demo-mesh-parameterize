@@ -22,10 +22,11 @@ namespace dr
 template <typename Real, typename Index>
 struct LeastSquaresConformalMap
 {
-    void init(
+    bool init(
         Span<Vec3<Real> const> const& vertex_positions,
         Span<Vec3<Index> const> const& face_vertices,
-        Span<Vec2<Index> const> const& boundary_edge_vertices)
+        Span<Vec2<Index> const> const& boundary_edge_vertices,
+        Vec2<Index> const& fixed_vertices)
     {
         Index const num_verts = vertex_positions.size();
         Index const n = num_verts << 1;
@@ -61,34 +62,47 @@ struct LeastSquaresConformalMap
 
         // Create quadratic form Q = 2 A - Ld
         Q_ = Real{2.0} * A_ - Ld_;
-        status_ = Status_Initialized;
-    }
 
-    bool solve(Vec2<Index> const& fixed_vertices, Span<Vec2<Real>> const& result)
-    {
-        assert(is_init());
-        Index const num_verts = x_.size() >> 1;
-
-        auto const is_fixed = [=](Index const index) {
-            Index const v = index % num_verts;
-            return v == fixed_vertices[0] || v == fixed_vertices[1];
-        };
-
-        // Init solver
-        if (!solver_.init(Q_, is_fixed))
+        // Initialize solver
+        set_fixed(fixed_vertices);
+        if (solver_.init(Q_, [&](Index i) { return is_fixed(i); }))
         {
             status_ = Status_Initialized;
+            return true;
+        }
+        else
+        {
+            status_ = Status_Default;
+            return false;
+        }
+    }
+
+    bool reinit(Vec2<Index> const& fixed_vertices)
+    {
+        assert(is_init());
+
+        // Initialize solver
+        set_fixed(fixed_vertices);
+        if (!solver_.init(Q_, [&](Index i) { return is_fixed(i); }))
+        {
+            status_ = Status_Default;
             return false;
         }
 
+        return true;
+    }
+
+    void solve(Span<Vec2<Real>> const& result)
+    {
+        assert(is_init());
+
         // Assign fixed vertices
-        x_.reshaped(num_verts, 2)(fixed_vertices, Eigen::all) = //
-            as_mat(result)(Eigen::all, fixed_vertices).transpose();
+        x_(fixed_({0, 2})) = result[fixed_[0]];
+        x_(fixed_({1, 3})) = result[fixed_[1]];
 
         // Solve remaining vertices
         solver_.solve(x_);
-        as_mat(result) = x_.reshaped(num_verts, 2).transpose();
-        return true;
+        as_mat(result) = x_.reshaped(x_.size() >> 1, 2).transpose();
     }
 
     bool is_init() const { return status_ != Status_Default; }
@@ -108,7 +122,16 @@ struct LeastSquaresConformalMap
     SparseMat<Real, Index> Q_{};
     DynamicArray<Triplet<Real, Index>> coeffs_{};
     Vec<Real> x_{};
+    Vec4<Index> fixed_{};
     Status status_{};
+
+    void set_fixed(Vec2<Index> const& vertices)
+    {
+        fixed_({0, 1}) = vertices;
+        fixed_({2, 3}) = vertices.array() + (x_.size() >> 1);
+    }
+
+    bool is_fixed(Index const index) const { return (fixed_.array() == index).any(); }
 };
 
 } // namespace dr
