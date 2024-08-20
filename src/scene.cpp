@@ -37,7 +37,7 @@ struct {
     struct {
         u16 major{0};
         u16 minor{3};
-        u16 patch{0};
+        u16 patch{1};
     } version;
 } constexpr scene_info{};
 
