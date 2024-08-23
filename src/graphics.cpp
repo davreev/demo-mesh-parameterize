@@ -77,6 +77,14 @@ void update_buffer(GfxBuffer& buf, GfxBuffer::Desc const& desc)
         buf = GfxBuffer::make(desc);
 }
 
+template <typename Material>
+void apply_uniforms(Material&& mat)
+{
+    auto const& [vert, frag] = mat.uniforms;
+    sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, {&vert, sizeof(vert)});
+    sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, {&frag, sizeof(frag)});
+}
+
 } // namespace
 
 void init_graphics()
@@ -165,16 +173,12 @@ void RenderMesh::bind_resources(sg_bindings& dst) const
 
 GfxPipeline::Handle MatcapDebug::pipeline() { return state.materials.matcap_debug.pipeline; }
 
-void MatcapDebug::apply_uniforms() const
-{
-    sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, {&params.vertex, sizeof(params.vertex)});
-    sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, {&params.fragment, sizeof(params.fragment)});
-}
-
 void MatcapDebug::bind_resources(sg_bindings& dst) const
 {
     dst.fs.images[0] = state.images.matcap;
     dst.fs.samplers[0] = state.samplers.matcap;
 }
+
+void MatcapDebug::apply_uniforms() const { dr::apply_uniforms(*this); }
 
 } // namespace dr

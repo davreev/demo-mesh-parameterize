@@ -13,35 +13,6 @@ void init_graphics();
 
 void reload_shaders();
 
-struct RenderPass
-{
-    template <typename Material>
-    void set_material(Material&& mat)
-    {
-        GfxPipeline::Handle const pipeline = mat.pipeline();
-        if (pipeline.id != prev_pipeline_.id)
-        {
-            sg_apply_pipeline(pipeline);
-            prev_pipeline_ = pipeline;
-        }
-        bindings_ = {};
-        mat.bind_resources(bindings_);
-        mat.apply_uniforms();
-    }
-
-    template <typename Geometry>
-    void draw_geometry(Geometry&& geom)
-    {
-        geom.bind_resources(bindings_);
-        sg_apply_bindings(bindings_);
-        geom.dispatch_draw();
-    }
-
-  private:
-    GfxPipeline::Handle prev_pipeline_{};
-    sg_bindings bindings_{};
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 // Geometry
 
@@ -86,20 +57,21 @@ struct FlattenedRenderMesh
 
 struct MatcapDebug
 {
-    // clang-format off
-    struct {
-        struct {
+    struct
+    {
+        struct
+        {
             f32 local_to_clip[16];
             f32 local_to_view[16];
         } vertex;
-        struct {
+
+        struct
+        {
             f32 tex_scale;
         } fragment;
-    } params{};
-    // clang-format on
+    } uniforms{};
 
     static GfxPipeline::Handle pipeline();
-
     void bind_resources(sg_bindings& dst) const;
     void apply_uniforms() const;
 };

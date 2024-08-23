@@ -550,20 +550,28 @@ void draw(void* /*context*/)
 
     if (state.shape.mesh)
     {
-        RenderPass pass{};
+        sg_bindings bindings{};
+
         auto& mat = state.gfx.materials.matcap_debug;
+        sg_apply_pipeline(mat.pipeline());
+        mat.bind_resources(bindings);
         {
-            // Update params
-            as_mat<4, 4>(mat.params.vertex.local_to_clip) = view_to_clip * local_to_view;
-            as_mat<4, 4>(mat.params.vertex.local_to_view) = local_to_view;
-            mat.params.fragment.tex_scale = state.params.tex_scale.value;
+            as_mat<4, 4>(mat.uniforms.vertex.local_to_clip) = view_to_clip * local_to_view;
+            as_mat<4, 4>(mat.uniforms.vertex.local_to_view) = local_to_view;
+            mat.uniforms.fragment.tex_scale = state.params.tex_scale.value;
         }
-        pass.set_material(mat);
+        mat.apply_uniforms();
+
+        auto const bind_and_draw = [&](auto&& geom) {
+            geom.bind_resources(bindings);
+            sg_apply_bindings(bindings);
+            geom.dispatch_draw();
+        };
 
         if (state.params.flatten)
-            pass.draw_geometry(FlattenedRenderMesh{&state.gfx.mesh});
+            bind_and_draw(FlattenedRenderMesh{&state.gfx.mesh});
         else
-            pass.draw_geometry(state.gfx.mesh);
+            bind_and_draw(state.gfx.mesh);
     }
 
     draw_debug(world_to_view, local_to_view, view_to_clip);
