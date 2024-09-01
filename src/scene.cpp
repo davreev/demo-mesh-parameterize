@@ -555,11 +555,11 @@ void draw(void* /*context*/)
         auto& mat = state.gfx.materials.matcap_debug;
         sg_apply_pipeline(mat.pipeline());
         mat.bind_resources(bindings);
-        {
-            as_mat<4, 4>(mat.uniforms.vertex.local_to_clip) = view_to_clip * local_to_view;
-            as_mat<4, 4>(mat.uniforms.vertex.local_to_view) = local_to_view;
-            mat.uniforms.fragment.tex_scale = state.params.tex_scale.value;
-        }
+
+        // Update uniforms
+        as_mat<4, 4>(mat.uniforms.vertex.local_to_clip) = view_to_clip * local_to_view;
+        as_mat<4, 4>(mat.uniforms.vertex.local_to_view) = local_to_view;
+        mat.uniforms.fragment.tex_scale = state.params.tex_scale.value;
         mat.apply_uniforms();
 
         auto const bind_and_draw = [&](auto&& geom) {
@@ -580,14 +580,24 @@ void draw(void* /*context*/)
 
 void handle_event(void* /*context*/, App::Event const& event)
 {
+    f32 const screen_to_view = dr::screen_to_view(state.view.fov_y, sapp_heightf());
+
     camera_handle_mouse_event(
         event,
-        state.camera.offset.z(),
-        screen_to_view(state.view.fov_y, sapp_heightf()),
+        state.zoom.target,
         &state.orbit.target,
-        &state.zoom.target,
         &state.pan.target,
+        screen_to_view,
         state.input.mouse_down);
+
+    camera_handle_touch_event(
+        event,
+        state.zoom.target,
+        &state.orbit.target,
+        &state.pan.target,
+        screen_to_view,
+        state.input.last_touch_points,
+        state.input.last_num_touches);
 
     switch (event.type)
     {
