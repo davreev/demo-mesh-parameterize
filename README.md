@@ -2,7 +2,7 @@
 
 ![](https://github.com/davreev/demo-mesh-parameterize/actions/workflows/build.yml/badge.svg)
 
-Demo and reference implementations of mesh parameterization methods [^1] [^2] for automated UV
+Demo and reference implementations of mesh parameterization methods [^1] [^2] for automated texture
 mapping of triangle meshes.
 
 Try it here: https://davreev.gitlab.io/demos/mesh-parameterize/
