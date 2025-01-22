@@ -247,30 +247,24 @@ void draw_settings_tab()
         {
             ImGui::BeginDisabled(state.task_queue.size() > 0);
 
-            static constexpr char const* mesh_names[] = {
-                "Human head",
-                "Pig head",
-                "Camel head",
-                "Ogre face",
-                "VW Bug",
-            };
-
-            AssetHandle::Mesh const handle = state.params.mesh_handle;
-            if (ImGui::BeginCombo("Shape", mesh_names[handle]))
+            AssetHandle::Mesh const curr_handle = state.params.mesh_handle;
+            if (ImGui::BeginCombo("Shape", get_asset_meta(curr_handle).name))
             {
                 for (u8 i = 0; i < AssetHandle::_Mesh_Count; ++i)
                 {
-                    bool const is_selected = (i == handle);
-                    if (ImGui::Selectable(mesh_names[i], is_selected))
+                    AssetHandle::Mesh const handle{i};
+                    bool const is_curr = (i == curr_handle);
+
+                    if (ImGui::Selectable(get_asset_meta(handle).name, is_curr))
                     {
-                        if (!is_selected)
+                        if (!is_curr)
                         {
                             state.params.mesh_handle = AssetHandle::Mesh{i};
                             on_mesh_asset_change();
                         }
                     }
 
-                    if (is_selected)
+                    if (is_curr)
                         ImGui::SetItemDefaultFocus();
                 }
 
@@ -358,20 +352,12 @@ void draw_about_tab()
         ImGui::Spacing();
 
         ImGui::SeparatorText("Asset Credits");
-        ImGui::TextLinkOpenURL("Armadillo", "http://graphics.stanford.edu/data/3Dscanrep/");
-        ImGui::TextLinkOpenURL(
-            "Human head",
-            "https://www.sidefx.com/docs/houdini/nodes/sop/testgeometry_templatehead.html");
-        ImGui::TextLinkOpenURL(
-            "Pig head",
-            "https://www.sidefx.com/docs/houdini/nodes/sop/testgeometry_pighead.html");
-        ImGui::TextLinkOpenURL(
-            "Camel head",
-            "https://igl.ethz.ch/projects/Laplacian-mesh-processing/ls-meshes/");
-        ImGui::TextLinkOpenURL(
-            "Ogre face",
-            "https://www.cs.cmu.edu/~kmcrane/Projects/ModelRepository/");
-        ImGui::TextLinkOpenURL("VW Bug", "https://www.cs.utah.edu/docs/misc/Uteapot03.pdf");
+        for (u8 i = 0; i < AssetHandle::_Mesh_Count; ++i)
+        {
+            auto const& meta = get_asset_meta(AssetHandle::Mesh{i});
+            if (meta.link_url)
+                ImGui::TextLinkOpenURL(meta.name, meta.link_url);
+        }
         ImGui::Spacing();
 
         ImGui::EndTabItem();

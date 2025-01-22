@@ -23,38 +23,6 @@ struct
     AssetCache<ShaderAsset> shaders;
 } state;
 
-char const* asset_path(AssetHandle::Mesh const handle)
-{
-    static constexpr char const* paths[]{
-        "assets/models/human-head.ply",
-        "assets/models/pig-head.ply",
-        "assets/models/camel-head.ply",
-        "assets/models/ogre-face.ply",
-        "assets/models/vw-bug.ply",
-    };
-    static_assert(size(paths) == AssetHandle::_Mesh_Count);
-    return paths[handle];
-}
-
-char const* asset_path(AssetHandle::Image const handle)
-{
-    static constexpr char const* paths[]{
-        "assets/images/matcap-white-soft.png",
-    };
-    static_assert(size(paths) == AssetHandle::_Image_Count);
-    return paths[handle];
-}
-
-char const* asset_path(AssetHandle::Shader const handle)
-{
-    static constexpr char const* paths[]{
-        "assets/shaders/matcap_debug.vert.glsl",
-        "assets/shaders/matcap_debug.frag.glsl",
-    };
-    static_assert(size(paths) == AssetHandle::_Shader_Count);
-    return paths[handle];
-}
-
 bool read_mesh_ply(char const* path, MeshAsset& asset)
 {
     using namespace happly;
@@ -208,24 +176,97 @@ bool load_shader(String const& path, ShaderAsset& asset)
 
 MeshAsset const* get_asset(AssetHandle::Mesh const handle, bool const force_reload)
 {
-    return state.meshes.get(asset_path(handle), load_mesh, force_reload);
+    return state.meshes.get(get_asset_meta(handle).path, load_mesh, force_reload);
 }
 
 ImageAsset const* get_asset(AssetHandle::Image const handle, bool const force_reload)
 {
-    return state.images.get(asset_path(handle), load_image, force_reload);
+    return state.images.get(get_asset_meta(handle).path, load_image, force_reload);
 }
 
 ShaderAsset const* get_asset(AssetHandle::Shader const handle, bool const force_reload)
 {
-    return state.shaders.get(asset_path(handle), load_shader, force_reload);
+    return state.shaders.get(get_asset_meta(handle).path, load_shader, force_reload);
 }
 
-void release_asset(AssetHandle::Mesh const handle) { state.meshes.remove(asset_path(handle)); }
+AssetMeta const& get_asset_meta(AssetHandle::Mesh const handle)
+{
+    static constexpr AssetMeta meta[]{
+        {
+            "Human head",
+            "assets/models/human-head.ply",
+            "https://www.sidefx.com/docs/houdini/nodes/sop/testgeometry_templatehead.html",
+        },
+        {
+            "Pig head",
+            "assets/models/pig-head.ply",
+            "https://www.sidefx.com/docs/houdini/nodes/sop/testgeometry_pighead.html",
+        },
+        {
+            "Camel head",
+            "assets/models/camel-head.ply",
+            "https://igl.ethz.ch/projects/Laplacian-mesh-processing/ls-meshes/",
+        },
+        {
+            "Ogre face",
+            "assets/models/ogre-face.ply",
+            "https://www.cs.cmu.edu/~kmcrane/Projects/ModelRepository/",
+        },
+        {
+            "VW Bug",
+            "assets/models/vw-bug.ply",
+            "https://www.cs.utah.edu/docs/misc/Uteapot03.pdf",
+        },
+    };
+    static_assert(size(meta) == AssetHandle::_Mesh_Count);
+    return meta[handle];
+}
 
-void release_asset(AssetHandle::Image const handle) { state.images.remove(asset_path(handle)); }
+AssetMeta const& get_asset_meta(AssetHandle::Image const handle)
+{
+    static constexpr AssetMeta meta[]{
+        {
+            "Matcap",
+            "assets/images/matcap-white-soft.png",
+            nullptr,
+        },
+    };
+    static_assert(size(meta) == AssetHandle::_Image_Count);
+    return meta[handle];
+}
 
-void release_asset(AssetHandle::Shader const handle) { state.shaders.remove(asset_path(handle)); }
+AssetMeta const& get_asset_meta(AssetHandle::Shader const handle)
+{
+    static constexpr AssetMeta meta[]{
+        {
+            "Matcap debug (vertex)",
+            "assets/shaders/matcap_debug.vert.glsl",
+            nullptr,
+        },
+        {
+            "Matcap debug (fragment)",
+            "assets/shaders/matcap_debug.frag.glsl",
+            nullptr,
+        },
+    };
+    static_assert(size(meta) == AssetHandle::_Shader_Count);
+    return meta[handle];
+}
+
+void release_asset(AssetHandle::Mesh const handle)
+{
+    state.meshes.remove(get_asset_meta(handle).path);
+}
+
+void release_asset(AssetHandle::Image const handle)
+{
+    state.images.remove(get_asset_meta(handle).path);
+}
+
+void release_asset(AssetHandle::Shader const handle)
+{
+    state.shaders.remove(get_asset_meta(handle).path);
+}
 
 void release_all_assets()
 {
