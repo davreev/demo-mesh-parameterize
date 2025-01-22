@@ -59,16 +59,9 @@ struct MatcapDebug
 {
     struct
     {
-        struct
-        {
-            f32 local_to_clip[16];
-            f32 local_to_view[16];
-        } vertex;
-
-        struct
-        {
-            f32 tex_scale;
-        } fragment;
+        f32 local_to_clip[16];
+        f32 local_to_view[16];
+        f32 tex_scale;
     } uniforms{};
 
     static GfxPipeline::Handle pipeline();

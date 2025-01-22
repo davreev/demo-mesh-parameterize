@@ -80,9 +80,7 @@ void update_buffer(GfxBuffer& buf, GfxBuffer::Desc const& desc)
 template <typename Material>
 void apply_uniforms(Material&& mat)
 {
-    auto const& [vert, frag] = mat.uniforms;
-    sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, {&vert, sizeof(vert)});
-    sg_apply_uniforms(SG_SHADERSTAGE_FS, 0, {&frag, sizeof(frag)});
+    sg_apply_uniforms(0, {&mat.uniforms, sizeof(mat.uniforms)});
 }
 
 } // namespace
@@ -175,8 +173,8 @@ GfxPipeline::Handle MatcapDebug::pipeline() { return state.materials.matcap_debu
 
 void MatcapDebug::bind_resources(sg_bindings& dst) const
 {
-    dst.fs.images[0] = state.images.matcap;
-    dst.fs.samplers[0] = state.samplers.matcap;
+    dst.images[0] = state.images.matcap;
+    dst.samplers[0] = state.samplers.matcap;
 }
 
 void MatcapDebug::apply_uniforms() const { dr::apply_uniforms(*this); }

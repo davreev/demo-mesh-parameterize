@@ -557,9 +557,9 @@ void draw(void* /*context*/)
         mat.bind_resources(bindings);
 
         // Update uniforms
-        as_mat<4, 4>(mat.uniforms.vertex.local_to_clip) = view_to_clip * local_to_view;
-        as_mat<4, 4>(mat.uniforms.vertex.local_to_view) = local_to_view;
-        mat.uniforms.fragment.tex_scale = state.params.tex_scale.value;
+        as_mat<4, 4>(mat.uniforms.local_to_clip) = view_to_clip * local_to_view;
+        as_mat<4, 4>(mat.uniforms.local_to_view) = local_to_view;
+        mat.uniforms.tex_scale = state.params.tex_scale.value;
         mat.apply_uniforms();
 
         auto const bind_and_draw = [&](auto&& geom) {

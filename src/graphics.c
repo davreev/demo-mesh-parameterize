@@ -1,31 +1,30 @@
 #include "graphics.h"
 
+// NOTE(dr): The assigned shader stage doesn't appear to matter when using OpenGL backends
+static sg_shader_stage const any_stage = SG_SHADERSTAGE_VERTEX;
+
 sg_shader_desc matcap_debug_shader_desc(char const* const vs_src, char const* const fs_src)
 {
     // clang-format off
     return (sg_shader_desc) {
-        .vs = {
-            .source = vs_src,
-            .uniform_blocks[0] = {
-                .uniforms[0] = {.name = "u_local_to_clip", .type = SG_UNIFORMTYPE_MAT4},
-                .uniforms[1] = {.name = "u_local_to_view", .type = SG_UNIFORMTYPE_MAT4},
-                .size = 16 * 2 * sizeof(float),
+        .vertex_func = {.source = vs_src},
+        .fragment_func = {.source = fs_src},
+        .uniform_blocks[0] = {
+            .stage = any_stage,
+            .size = sizeof(float[16 * 2 + 1]),
+            .glsl_uniforms = {
+                {.glsl_name = "u_local_to_clip", .type = SG_UNIFORMTYPE_MAT4},
+                {.glsl_name = "u_local_to_view", .type = SG_UNIFORMTYPE_MAT4},
+                {.glsl_name = "u_tex_scale", .type = SG_UNIFORMTYPE_FLOAT},
             },
         },
-        .fs = {
-            .source = fs_src,
-            .uniform_blocks[0] = {
-                .uniforms[0] = {.name = "u_tex_scale", .type = SG_UNIFORMTYPE_FLOAT},
-                .size = sizeof(float),
-            },
-            .images[0] = {.used = true},
-            .samplers[0] = {.used = true},
-            .image_sampler_pairs[0] = {
-                .used = true, 
-                .image_slot = 0, 
-                .sampler_slot = 0,
-                .glsl_name = "u_matcap", 
-            },
+        .images[0] = {.stage = any_stage},
+        .samplers[0] = {.stage = any_stage},
+        .image_sampler_pairs[0] = {
+            .glsl_name = "u_matcap", 
+            .stage = any_stage, 
+            .image_slot = 0, 
+            .sampler_slot = 0,
         },
     };
     // clang-format on

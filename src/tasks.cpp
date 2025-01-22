@@ -110,7 +110,7 @@ void SolveTexCoords::operator()()
             {
                 constexpr auto perp_ccw = [](Vec2<f32> const& a) { return vec(-a[1], a[0]); };
 
-                auto const [v0, v1] = expand(input.ref_verts);
+                auto const [v0, v1] = unpack(input.ref_verts);
                 Vec2<f32> const d = tc[v1] - tc[v0];
 
                 Mat2<f32> const r_s = mat(d, perp_ccw(d)).transpose() * (2.0f / d.squaredNorm());

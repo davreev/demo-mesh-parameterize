@@ -15,7 +15,7 @@ dr::App::Desc DR_APP_MAIN(int /*argc*/, char* /*argv*/[])
         desc.sample_count = 4;
         desc.window_title = "Demo: Mesh Parameterize";
 #if __EMSCRIPTEN__
-        desc.html5_canvas_name = "mesh-parameterize";
+        desc.html5_canvas_selector = "#mesh-parameterize";
 #endif
     }
 
