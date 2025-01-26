@@ -1,21 +1,28 @@
-#include "graphics.h"
+#include "viewer.h"
 
 // NOTE(dr): The assigned shader stage doesn't appear to matter when using OpenGL backends
 static sg_shader_stage const any_stage = SG_SHADERSTAGE_VERTEX;
 
-sg_shader_desc matcap_debug_shader_desc(char const* const vs_src, char const* const fs_src)
+sg_shader_desc texture_debug_shader_desc(char const* const vs_src, char const* const fs_src)
 {
     // clang-format off
     return (sg_shader_desc) {
         .vertex_func = {.source = vs_src},
         .fragment_func = {.source = fs_src},
-        .uniform_blocks[0] = {
+        .uniform_blocks[UniformBlock_Material] = {
+            .stage = any_stage,
+            .size = sizeof(float),
+            .glsl_uniforms = {
+                {.glsl_name = "u_tex_scale", .type = SG_UNIFORMTYPE_FLOAT},
+            },
+        },
+        .uniform_blocks[UniformBlock_Instance] = {
             .stage = any_stage,
             .size = sizeof(float[16 * 2 + 1]),
             .glsl_uniforms = {
                 {.glsl_name = "u_local_to_clip", .type = SG_UNIFORMTYPE_MAT4},
                 {.glsl_name = "u_local_to_view", .type = SG_UNIFORMTYPE_MAT4},
-                {.glsl_name = "u_tex_scale", .type = SG_UNIFORMTYPE_FLOAT},
+                {.glsl_name = "u_flatten", .type = SG_UNIFORMTYPE_INT},
             },
         },
         .images[0] = {.stage = any_stage},
@@ -30,7 +37,7 @@ sg_shader_desc matcap_debug_shader_desc(char const* const vs_src, char const* co
     // clang-format on
 }
 
-sg_pipeline_desc matcap_debug_pipeline_desc(sg_shader const shader)
+sg_pipeline_desc texture_debug_pipeline_desc(sg_shader const shader)
 {
     // clang-format off
     return (sg_pipeline_desc) {
@@ -38,7 +45,7 @@ sg_pipeline_desc matcap_debug_pipeline_desc(sg_shader const shader)
         .layout = {
             .attrs[0] = {.buffer_index = 0, .format = SG_VERTEXFORMAT_FLOAT3},
             .attrs[1] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT3},
-            .attrs[2] = {.buffer_index = 2, .format = SG_VERTEXFORMAT_FLOAT3},
+            .attrs[2] = {.buffer_index = 2, .format = SG_VERTEXFORMAT_FLOAT2},
         },
         .depth = {
             .compare = SG_COMPAREFUNC_LESS,
@@ -50,25 +57,7 @@ sg_pipeline_desc matcap_debug_pipeline_desc(sg_shader const shader)
     // clang-format on
 }
 
-sg_buffer_desc vertex_buffer_desc(size_t const size)
-{
-    return (sg_buffer_desc){
-        .size = size,
-        .type = SG_BUFFERTYPE_VERTEXBUFFER,
-        .usage = SG_USAGE_DYNAMIC,
-    };
-}
-
-sg_buffer_desc index_buffer_desc(size_t const size)
-{
-    return (sg_buffer_desc){
-        .size = size,
-        .type = SG_BUFFERTYPE_INDEXBUFFER,
-        .usage = SG_USAGE_DYNAMIC,
-    };
-}
-
-sg_image_desc matcap_image_desc(void const* const data, int const width, int const height)
+sg_image_desc texture_debug_matcap_image_desc(void const* const data, int const width, int const height)
 {
     return (sg_image_desc){
         .width = width,
@@ -83,10 +72,28 @@ sg_image_desc matcap_image_desc(void const* const data, int const width, int con
     };
 }
 
-sg_sampler_desc matcap_sampler_desc(void)
+sg_sampler_desc texture_debug_matcap_sampler_desc(void)
 {
     return (sg_sampler_desc){
         .min_filter = SG_FILTER_LINEAR,
         .mag_filter = SG_FILTER_LINEAR,
+    };
+}
+
+sg_buffer_desc mesh_vertex_buffer_desc(size_t const size)
+{
+    return (sg_buffer_desc){
+        .size = size,
+        .type = SG_BUFFERTYPE_VERTEXBUFFER,
+        .usage = SG_USAGE_DYNAMIC,
+    };
+}
+
+sg_buffer_desc mesh_index_buffer_desc(size_t const size)
+{
+    return (sg_buffer_desc){
+        .size = size,
+        .type = SG_BUFFERTYPE_INDEXBUFFER,
+        .usage = SG_USAGE_DYNAMIC,
     };
 }

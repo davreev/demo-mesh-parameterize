@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(
     mesh-parameterize
-    VERSION 0.4.0
+    VERSION 0.5.0
     LANGUAGES C CXX
 )
 
@@ -29,12 +29,12 @@ set(app_name mesh-parameterize)
 add_executable(
     ${app_name}
     "src/assets.cpp"
-    "src/graphics.c"
-    "src/graphics.cpp"
     "src/impl.cpp"
     "src/main.cpp"
     "src/scene.cpp"
     "src/tasks.cpp"
+    "src/viewer.c"
+    "src/viewer.cpp"
 )
 
 include(deps/dr-app)
@@ -87,8 +87,8 @@ get_default_runtime_output_dir(runtime_output_dir)
 
 set(
     glsl_files
-    "${src_dir}/assets/shaders/matcap_debug.frag.glsl"
-    "${src_dir}/assets/shaders/matcap_debug.vert.glsl"
+    "${src_dir}/assets/shaders/texture_debug.frag.glsl"
+    "${src_dir}/assets/shaders/texture_debug.vert.glsl"
     # ...
 )
 

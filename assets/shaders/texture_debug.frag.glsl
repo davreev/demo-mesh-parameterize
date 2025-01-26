@@ -24,6 +24,8 @@ vec3 proc_tex(vec2 p)
 
 vec3 proc_tex_aa(vec2 p)
 {
+    // TODO(dr): Could approximate integral of proc_tex over pixel in screenspace?
+
     // NOTE(dr): Filter procedural texture using screen space stencil centered at p
     vec2 dp_x = 0.25 * dFdx(p);
     vec2 dp_y = 0.25 * dFdy(p);

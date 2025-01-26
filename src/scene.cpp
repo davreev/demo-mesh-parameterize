@@ -4,6 +4,7 @@
 
 #include <dr/math_ctors.hpp>
 #include <dr/span.hpp>
+#include <dr/transform.hpp>
 
 #include <dr/app/camera.hpp>
 #include <dr/app/debug_draw.hpp>
@@ -14,8 +15,8 @@
 #include <dr/app/thread_pool.hpp>
 
 #include "assets.hpp"
-#include "graphics.hpp"
 #include "tasks.hpp"
+#include "viewer.hpp"
 
 namespace dr
 {
@@ -36,25 +37,24 @@ struct {
     char const* author = "David Reeves";
     struct {
         u16 major{0};
-        u16 minor{4};
+        u16 minor{5};
         u16 patch{0};
     } version;
 } constexpr scene_info{};
 
 struct {
+    Viewer viewer;
     struct {
-        RenderMesh mesh;
-        struct {
-            MatcapDebug matcap_debug;
-        } materials;
-    } gfx;
+        Viewer::TextureDebugMaterial texture_db_material;
+        Viewer::MeshGeometry mesh;
+        Viewer::TexturedMeshGeometry tex_mesh;
+        Viewer::TexturedMeshInstance tex_mesh_instances[2];
+    } scene;
 
-    struct {
-        MeshAsset const* mesh;
-        DynamicArray<Vec3<f32>> tex_coords;
-        DynamicArray<Vec2<i32>> boundary_edge_verts;
-        Vec2<i32> ref_verts;
-    } shape;
+    MeshAsset const* mesh;
+    DynamicArray<Vec2<f32>> tex_coords;
+    DynamicArray<Vec2<i32>> boundary_edge_verts;
+    Vec2<i32> ref_verts;
 
     TaskQueue task_queue;
     struct {
@@ -62,23 +62,6 @@ struct {
         ExtractMeshBoundary extract_boundary;
         SolveTexCoords solve_tex_coords;
     } tasks;
-
-    struct {
-        f32 fov_y{deg_to_rad(60.0f)};
-        f32 clip_near{0.01f};
-        f32 clip_far{100.0f};
-    } view;
-
-    EasedOrbit orbit{{pi<f32> * 0.3f, pi<f32> * 0.5f}};
-    EasedZoom zoom{{2.0f, 1.0f, view.clip_near, view.clip_far}};
-    EasedPan pan{};
-    Camera camera{make_camera(orbit.current, zoom.current)};
-
-    struct {
-        Vec2<f32> last_touch_points[2];
-        i8 last_num_touches;
-        bool mouse_down[3];
-    } input;
 
     struct {
         Param<f32> tex_scale{0.01f, 0.001f, 0.1f};
@@ -89,37 +72,27 @@ struct {
 } state{};
 // clang-format on
 
-void center_camera(Vec3<f32> const& point, f32 const radius)
-{
-    constexpr f32 pad_scale{1.2f};
-    state.camera.pivot.position = point;
-    state.zoom.target.distance = radius * pad_scale / std::sin(state.view.fov_y * 0.5);
-    state.pan.target.offset = {};
-}
-
 void set_mesh(MeshAsset const* mesh)
 {
-    state.shape.mesh = mesh;
-    state.shape.tex_coords.assign(mesh->vertices.count(), {});
-    state.shape.boundary_edge_verts.clear();
+    state.mesh = mesh;
+    state.tex_coords.assign(mesh->vertices.count(), {});
+    state.boundary_edge_verts.clear();
 
-    // Update the render mesh
+    // Update mesh geometry and instances
     {
-        auto& render_mesh = state.gfx.mesh;
-        render_mesh.set_indices(as_span(mesh->faces.vertex_ids));
-        render_mesh.set_vertices(
-            as_span(mesh->vertices.positions),
-            as_span(mesh->vertices.normals));
+        auto& geom = state.scene.mesh;
+        geom.set_indices(as_span(mesh->faces.vertex_ids));
+        geom.set_vertices(as_span(mesh->vertices.positions), as_span(mesh->vertices.normals));
 
-        // Set default texture coords from asset
-        render_mesh.set_vertices(as_span(state.shape.tex_coords));
+        for (auto& inst : state.scene.tex_mesh_instances)
+            inst.geometry = nullptr;
     }
 }
 
 void set_mesh_boundary(Span<Vec2<i32> const> const& boundary_edge_verts)
 {
     auto const& src = boundary_edge_verts;
-    state.shape.boundary_edge_verts.assign(begin(src), end(src));
+    state.boundary_edge_verts.assign(begin(src), end(src));
 
     // Update ref verts
     {
@@ -138,15 +111,53 @@ void set_mesh_boundary(Span<Vec2<i32> const> const& boundary_edge_verts)
             {100, 164}, // VW Bug
         };
         static_assert(size(table) == AssetHandle::_Mesh_Count);
-        state.shape.ref_verts = table[state.params.mesh_handle];
+        state.ref_verts = table[state.params.mesh_handle];
     }
 };
 
 void set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
 {
-    auto const dst = as_span(state.shape.tex_coords);
-    as_mat(dst)({0, 1}, Eigen::all) = as_mat(tex_coords);
-    state.gfx.mesh.set_vertices(dst);
+    auto const dst = as_span(state.tex_coords);
+    as_mat(dst) = as_mat(tex_coords);
+
+    // Update mesh geometry and instances
+    {
+        auto& tex_mesh = state.scene.tex_mesh;
+        tex_mesh.set_tex_coords(dst);
+
+        for (auto& inst : state.scene.tex_mesh_instances)
+            inst.geometry = &tex_mesh;
+
+        // Fit instance to unit sphere
+        {
+            Conformal3<f32>& xform = state.scene.tex_mesh_instances[0].transform = {};
+
+            auto const& [cen, rad] = state.mesh->bounds;
+            f32 const s = 1.0f / rad;
+
+            xform.scale = s;
+            xform.translation = -cen * s;
+        }
+
+        // Align flattened instance to YZ plane
+        {
+            Conformal3<f32>& xform = state.scene.tex_mesh_instances[1].transform = {};
+
+            if (state.params.solve_method == SolveTexCoords::Method_None)
+            {
+                // Fit to unit sphere
+                xform.scale = 1.0f / state.mesh->bounds.radius;
+                xform.rotation.q = mat(
+                    vec(0.0f, 1.0f, 0.0f),
+                    vec(0.0f, 0.0f, 1.0f),
+                    vec(1.0f, 0.0f, 0.0f));
+            }
+            else
+            {
+                xform.rotation.q = {pi<f32> * -0.5f, Vec3<f32>::UnitY()};
+            }
+        }
+    }
 }
 
 void schedule_task(LoadMeshAsset& task)
@@ -185,7 +196,7 @@ void schedule_task(ExtractMeshBoundary& task)
         {
             case Event::BeforeSubmit:
             {
-                task->input.mesh = state.shape.mesh;
+                task->input.mesh = state.mesh;
                 return true;
             };
             case Event::AfterComplete:
@@ -211,9 +222,9 @@ void schedule_task(SolveTexCoords& task)
         {
             case Event::BeforeSubmit:
             {
-                task->input.mesh = state.shape.mesh;
-                task->input.boundary_edge_verts = as_span(state.shape.boundary_edge_verts);
-                task->input.ref_verts = state.shape.ref_verts;
+                task->input.mesh = state.mesh;
+                task->input.boundary_edge_verts = as_span(state.boundary_edge_verts);
+                task->input.ref_verts = state.ref_verts;
                 task->input.method = state.params.solve_method;
                 return true;
             };
@@ -418,36 +429,51 @@ void debug_draw_mesh_boundary(Mat4<f32> const& local_to_view)
     sgl_begin_lines();
     sgl_c3f(1.0f, 1.0f, 1.0f);
 
-    auto const v_p = state.params.flatten //
-        ? as_span(state.shape.tex_coords)
-        : as_span(state.shape.mesh->vertices.positions);
-
-    for (auto const& e_v : state.shape.boundary_edge_verts)
+    if (state.params.flatten)
     {
-        auto const& p0 = v_p[e_v[0]];
-        sgl_v3f(p0.x(), p0.y(), p0.z());
+        auto const v_p = as_span(state.tex_coords);
+        for (auto const& e_v : state.boundary_edge_verts)
+        {
+            auto const& p0 = v_p[e_v[0]];
+            sgl_v3f(p0.x(), p0.y(), 0.0f);
 
-        auto const& p1 = v_p[e_v[1]];
-        sgl_v3f(p1.x(), p1.y(), p1.z());
+            auto const& p1 = v_p[e_v[1]];
+            sgl_v3f(p1.x(), p1.y(), 0.0f);
+        }
+    }
+    else
+    {
+        auto const v_p = as_span(state.mesh->vertices.positions);
+        for (auto const& e_v : state.boundary_edge_verts)
+        {
+            auto const& p0 = v_p[e_v[0]];
+            sgl_v3f(p0.x(), p0.y(), p0.z());
+
+            auto const& p1 = v_p[e_v[1]];
+            sgl_v3f(p1.x(), p1.y(), p1.z());
+        }
     }
 
     sgl_end();
 }
 
-void draw_debug(
-    Mat4<f32> const& world_to_view,
-    Mat4<f32> const& local_to_view,
-    Mat4<f32> const& view_to_clip)
+void draw_debug()
 {
+    auto const& frame = state.viewer.frame;
+
     sgl_defaults();
 
     sgl_matrix_mode_projection();
-    sgl_load_matrix(view_to_clip.data());
+    sgl_load_matrix(frame.view_to_clip.data());
 
-    debug_draw_axes(world_to_view, 0.1f);
+    debug_draw_axes(frame.world_to_view, 0.1f);
 
-    if (state.shape.mesh)
-        debug_draw_mesh_boundary(local_to_view);
+    auto const inst = state.scene.tex_mesh_instances[state.params.flatten];
+    if (inst.geometry)
+    {
+        Mat4<f32> const local_to_world = inst.transform.to_matrix();
+        debug_draw_mesh_boundary(frame.world_to_view * local_to_world);
+    }
 
     sgl_draw();
 }
@@ -455,7 +481,29 @@ void draw_debug(
 void open(void* /*context*/)
 {
     thread_pool_start(1);
-    init_graphics();
+
+    Viewer::init_default_resources();
+
+    // Initialize scene
+    {
+        auto& scene = state.scene;
+        scene.tex_mesh.mesh = &scene.mesh;
+
+        auto& inst = scene.tex_mesh_instances[0];
+        inst.material = &scene.texture_db_material;
+
+        auto& flat_inst = scene.tex_mesh_instances[1];
+        flat_inst.material = &scene.texture_db_material;
+        flat_inst.flatten = true;
+    }
+
+    // Center camera on unit sphere
+    {
+        auto& view = state.viewer.view;
+        view.target.position = vec<3>(0.0f);
+        view.target.radius = 1.2f;
+        view.frame_target();
+    }
 
     // Load default mesh asset and solve
     on_mesh_asset_change();
@@ -469,121 +517,31 @@ void close(void* /*context*/)
 
 void update(void* /*context*/)
 {
-    f32 const t = saturate(5.0 * App::delta_time_s());
-
-    state.orbit.update(t);
-    state.orbit.apply(state.camera);
-
-    state.zoom.update(t);
-    state.zoom.apply(state.camera);
-
-    state.pan.update(t);
-    state.pan.apply(state.camera);
-
+    state.viewer.update();
     state.task_queue.poll();
 }
 
 void draw(void* /*context*/)
 {
-    constexpr auto make_local_to_world = []() -> Mat4<f32> {
-        if (state.shape.mesh)
-        {
-            if (state.params.flatten)
-            {
-                if (state.params.solve_method == SolveTexCoords::Method_None)
-                {
-                    static auto const r = mat(
-                        vec(0.0f, 1.0f, 0.0f),
-                        vec(0.0f, 0.0f, 1.0f),
-                        vec(1.0f, 0.0f, 0.0f));
-
-                    auto const [cen, rad] = state.shape.mesh->bounds;
-                    f32 const s = 1.0f / rad;
-                    return make_affine(s * r, -cen * s);
-                }
-                else
-                {
-                    static auto const r = mat(
-                        vec(0.0f, 0.0f, 1.0f),
-                        vec(0.0f, 1.0f, 0.0f),
-                        vec(-1.0f, 0.0f, 0.0f));
-
-                    return make_affine(r);
-                }
-            }
-            else
-            {
-                // Fit to unit sphere
-                auto const [cen, rad] = state.shape.mesh->bounds;
-                f32 const s = 1.0f / rad;
-                return make_scale_translate(vec<3>(s), -cen * s);
-            }
-        }
-        else
-        {
-            return Mat4<f32>::Identity();
-        }
-    };
-
-    Mat4<f32> const local_to_world = make_local_to_world();
-    Mat4<f32> const world_to_view = state.camera.transform().inverse_to_matrix();
-    Mat4<f32> const local_to_view = world_to_view * local_to_world;
-    Mat4<f32> const view_to_clip = make_perspective(
-        state.view.fov_y,
-        App::aspect(),
-        state.view.clip_near,
-        state.view.clip_far);
-
-    if (state.shape.mesh)
+    // Update material params
     {
-        sg_bindings bindings{};
-
-        auto& mat = state.gfx.materials.matcap_debug;
-        sg_apply_pipeline(mat.pipeline());
-        mat.bind_resources(bindings);
-
-        // Update uniforms
-        as_mat<4, 4>(mat.uniforms.local_to_clip) = view_to_clip * local_to_view;
-        as_mat<4, 4>(mat.uniforms.local_to_view) = local_to_view;
-        mat.uniforms.tex_scale = state.params.tex_scale.value;
-        mat.apply_uniforms();
-
-        auto const bind_and_draw = [&](auto&& geom) {
-            geom.bind_resources(bindings);
-            sg_apply_bindings(bindings);
-            geom.dispatch_draw();
-        };
-
-        if (state.params.flatten)
-            bind_and_draw(FlattenedRenderMesh{&state.gfx.mesh});
-        else
-            bind_and_draw(state.gfx.mesh);
+        auto& mat = state.scene.texture_db_material;
+        mat.tex_scale = state.params.tex_scale.value;
     }
 
-    draw_debug(world_to_view, local_to_view, view_to_clip);
+    auto const& inst = state.scene.tex_mesh_instances[state.params.flatten];
+    state.viewer.draw<
+        Viewer::TextureDebugMaterial,
+        Viewer::TexturedMeshGeometry,
+        Viewer::TexturedMeshInstance>({&inst, 1});
+
+    draw_debug();
     draw_ui();
 }
 
 void handle_event(void* /*context*/, App::Event const& event)
 {
-    f32 const screen_to_view = dr::screen_to_view(state.view.fov_y, sapp_heightf());
-
-    camera_handle_mouse_event(
-        event,
-        state.zoom.target,
-        &state.orbit.target,
-        &state.pan.target,
-        screen_to_view,
-        state.input.mouse_down);
-
-    camera_handle_touch_event(
-        event,
-        state.zoom.target,
-        &state.orbit.target,
-        &state.pan.target,
-        screen_to_view,
-        state.input.last_touch_points,
-        state.input.last_num_touches);
+    state.viewer.handle_event(event);
 
     switch (event.type)
     {
@@ -594,23 +552,27 @@ void handle_event(void* /*context*/, App::Event const& event)
                 case SAPP_KEYCODE_F:
                 {
                     if (is_mouse_over(event))
-                        center_camera({}, 1.0f);
+                        state.viewer.view.frame_target();
 
                     break;
-                }
+                };
                 case SAPP_KEYCODE_R:
                 {
-                    reload_shaders();
+                    if (is_mouse_over(event))
+                        Viewer::reload_default_shaders();
+
                     break;
-                }
+                };
                 default:
                 {
+                    // ...
                 }
             }
             break;
         }
         default:
         {
+            // ...
         }
     }
 }

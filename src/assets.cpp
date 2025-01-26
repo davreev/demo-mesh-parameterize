@@ -239,13 +239,13 @@ AssetMeta const& get_asset_meta(AssetHandle::Shader const handle)
 {
     static constexpr AssetMeta meta[]{
         {
-            "Matcap debug (vertex)",
-            "assets/shaders/matcap_debug.vert.glsl",
+            "Texture debug (vertex)",
+            "assets/shaders/texture_debug.vert.glsl",
             nullptr,
         },
         {
-            "Matcap debug (fragment)",
-            "assets/shaders/matcap_debug.frag.glsl",
+            "Texture debug (fragment)",
+            "assets/shaders/texture_debug.frag.glsl",
             nullptr,
         },
     };

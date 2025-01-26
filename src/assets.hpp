@@ -29,8 +29,8 @@ struct AssetHandle
 
     enum Shader : u8
     {
-        Shader_MatcapDebugVert = 0,
-        Shader_MatcapDebugFrag,
+        Shader_TextureDebugVert = 0,
+        Shader_TextureDebugFrag,
         _Shader_Count,
     };
 };
