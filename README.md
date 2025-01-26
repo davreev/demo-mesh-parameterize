@@ -2,6 +2,8 @@
 
 ![](https://github.com/davreev/demo-mesh-parameterize/actions/workflows/build.yml/badge.svg)
 
+![](https://spatialslur.com/demos/mesh-parameterize-400.png)
+
 Demo and reference implementations of mesh parameterization methods [^1] [^2] for automated texture
 mapping of triangle meshes.
 
