@@ -1,6 +1,9 @@
 #include "viewer.hpp"
 
+#include <type_traits>
+
 #include <dr/container_utils.hpp>
+#include <dr/meta.hpp>
 
 #include <dr/app/event_handlers.hpp>
 #include <dr/app/gfx_utils.hpp>
@@ -70,24 +73,26 @@ Handle const valid_or(Handle const handle, Handle const other)
     return (handle.id == SG_INVALID_ID) ? other : handle;
 }
 
-// Specialize for valid instance/material permutations
-template <typename Material, typename Instance>
-Material const* instance_material(Instance const&);
+template <typename T>
+[[maybe_unused]]
+constexpr bool always_false{false};
 
-template <>
-Viewer::TextureDebugMaterial const* instance_material(Viewer::TexturedMeshInstance const& inst)
+template <typename Material>
+Material const* get_material(Viewer::TexturedMeshInstance const& inst)
 {
-    return inst.material;
+    if constexpr (std::is_same_v<Material, Viewer::TextureDebugMaterial>)
+        return inst.material;
+    else
+        static_assert(always_false<Material>, "Material type not available");
 }
 
-// Specialize for valid instance/geometry permutations
-template <typename Geometry, typename Instance>
-Geometry const* instance_geometry(Instance const&);
-
-template <>
-Viewer::TexturedMeshGeometry const* instance_geometry(Viewer::TexturedMeshInstance const& inst)
+template <typename Geometry>
+Geometry const* get_geometry(Viewer::TexturedMeshInstance const& inst)
 {
-    return inst.geometry;
+    if constexpr (std::is_same_v<Geometry, Viewer::TexturedMeshGeometry>)
+        return inst.geometry;
+    else
+        static_assert(always_false<Geometry>, "Geometry type not available");
 }
 
 struct DrawContext
@@ -127,15 +132,6 @@ struct DrawContext
         bindings.samplers[0] = valid_or(mat.matcap.sampler, Default::matcap.sampler.handle());
     }
 
-    void bind_resources(Viewer::TexturedMeshGeometry const& geom)
-    {
-        bindings.vertex_buffers[0] = geom.mesh->vertices.buffer;
-        bindings.vertex_buffers[1] = geom.mesh->vertices.buffer;
-        bindings.vertex_buffer_offsets[1] = geom.mesh->vertices.count * sizeof(f32[3]);
-        bindings.vertex_buffers[2] = geom.tex_coords.buffer;
-        bindings.index_buffer = geom.mesh->indices.buffer;
-    }
-
     void apply_uniforms(Viewer::TextureDebugMaterial const& mat)
     {
         struct
@@ -147,13 +143,39 @@ struct DrawContext
         sg_apply_uniforms(UniformBlock_Material, {&u, sizeof(u)});
     }
 
+    template <typename Material>
+    void bind_resources(Viewer::TexturedMeshGeometry const& geom)
+    {
+        using OkTypes = TypePack<Viewer::TextureDebugMaterial>;
+
+        // NOTE(dr): Can static dispatch based on bound material type
+        static_assert(
+            OkTypes::includes<Material>,
+            "Geometry type isn't compatible with bound material type");
+
+        bindings.vertex_buffers[0] = geom.mesh->vertices.buffer;
+        bindings.vertex_buffers[1] = geom.mesh->vertices.buffer;
+        bindings.vertex_buffer_offsets[1] = geom.mesh->vertices.count * sizeof(f32[3]);
+        bindings.vertex_buffers[2] = geom.tex_coords.buffer;
+        bindings.index_buffer = geom.mesh->indices.buffer;
+    }
+
+    template <typename Material>
     void apply_uniforms(Viewer::TexturedMeshGeometry const&)
     {
         // ...
     }
 
+    template <typename Material, typename Geometry>
     void draw(Viewer::TexturedMeshInstance const& inst)
     {
+        using OkTypes = TypePack<Viewer::TextureDebugMaterial, Viewer::TexturedMeshGeometry>;
+
+        // NOTE(dr): Can static dispatch based on bound material and geometry types
+        static_assert(
+            OkTypes::includes<Material> && OkTypes::includes<Geometry>,
+            "Instance type isn't compatible with bound material or geometry type");
+
         // Update instance uniforms
         {
             Mat4<f32> const local_to_world = inst.transform.to_matrix();
@@ -184,11 +206,11 @@ void draw_impl(DrawContext ctx, Span<Instance const> instances)
 
     for (Instance const& inst : instances)
     {
-        Material const* mat = instance_material<Material>(inst);
+        Material const* mat = get_material<Material>(inst);
         if (mat == nullptr)
             continue;
 
-        Geometry const* geom = instance_geometry<Geometry>(inst);
+        Geometry const* geom = get_geometry<Geometry>(inst);
         if (geom == nullptr)
             continue;
 
@@ -207,8 +229,8 @@ void draw_impl(DrawContext ctx, Span<Instance const> instances)
         // Update geometry
         if (geom != prev_geom || pipeline_changed)
         {
-            ctx.bind_resources(*geom), bindings_dirty = true;
-            ctx.apply_uniforms(*geom);
+            ctx.bind_resources<Material>(*geom), bindings_dirty = true;
+            ctx.apply_uniforms<Material>(*geom);
             prev_geom = geom;
         }
 
@@ -217,7 +239,7 @@ void draw_impl(DrawContext ctx, Span<Instance const> instances)
             ctx.apply_bindings();
 
         // Draw instance
-        ctx.draw(inst);
+        ctx.draw<Material, Geometry>(inst);
     }
 }
 
