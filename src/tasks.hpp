@@ -43,7 +43,7 @@ struct ExtractMeshBoundary
     void operator()();
 
   private:
-    VertsToEdge<i32>::Map verts_to_edge_;
+    VerticesToEdge<i32>::Map verts_to_edge_;
     DynamicArray<i32> edge_tris_;
     DynamicArray<i32> edge_start_verts_;
     DynamicArray<Vec2<i32>> boundary_edge_verts_;

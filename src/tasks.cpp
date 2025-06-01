@@ -31,7 +31,7 @@ void LoadMeshAsset::operator()()
 void ExtractMeshBoundary::operator()()
 {
     auto const tri_verts = as_span(input.mesh->faces.vertex_ids);
-    VertsToEdge<i32>::make_from_tris(tri_verts, verts_to_edge_);
+    VerticesToEdge<i32>::make_from_tris(tri_verts, verts_to_edge_);
 
     isize const num_edges = verts_to_edge_.size();
     edge_tris_.resize(num_edges);
