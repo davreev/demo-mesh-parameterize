@@ -86,9 +86,8 @@ set(gen_dir "${CMAKE_CURRENT_BINARY_DIR}/gen")
 get_default_runtime_output_dir(runtime_output_dir)
 
 set(
-    glsl_files
-    "${src_dir}/assets/shaders/texture_debug.frag.glsl"
-    "${src_dir}/assets/shaders/texture_debug.vert.glsl"
+    slang_files
+    "${src_dir}/assets/shaders/texture_debug.slang"
     # ...
 )
 

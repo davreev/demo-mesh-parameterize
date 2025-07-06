@@ -13,22 +13,22 @@ sg_shader_desc texture_debug_shader_desc(char const* const vs_src, char const* c
             .stage = any_stage,
             .size = sizeof(float),
             .glsl_uniforms = {
-                {.glsl_name = "u_tex_scale", .type = SG_UNIFORMTYPE_FLOAT},
+                {.glsl_name = "material.tex_scale", .type = SG_UNIFORMTYPE_FLOAT},
             },
         },
         .uniform_blocks[UniformBlock_Instance] = {
             .stage = any_stage,
             .size = sizeof(float[16 * 2 + 1]),
             .glsl_uniforms = {
-                {.glsl_name = "u_local_to_clip", .type = SG_UNIFORMTYPE_MAT4},
-                {.glsl_name = "u_local_to_view", .type = SG_UNIFORMTYPE_MAT4},
-                {.glsl_name = "u_flatten", .type = SG_UNIFORMTYPE_INT},
+                {.glsl_name = "instance.local_to_clip.data", .type = SG_UNIFORMTYPE_FLOAT4, .array_count = 4},
+                {.glsl_name = "instance.local_to_view.data", .type = SG_UNIFORMTYPE_FLOAT4, .array_count = 4},
+                {.glsl_name = "instance.flatten", .type = SG_UNIFORMTYPE_INT},
             },
         },
         .images[0] = {.stage = any_stage},
         .samplers[0] = {.stage = any_stage},
         .image_sampler_pairs[0] = {
-            .glsl_name = "u_matcap", 
+            .glsl_name = "matcap", 
             .stage = any_stage, 
             .image_slot = 0, 
             .sampler_slot = 0,

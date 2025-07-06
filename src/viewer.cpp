@@ -141,7 +141,7 @@ void apply_uniforms(Viewer::TextureDebugMaterial const& mat, DrawContext const& 
 {
     struct
     {
-        float tex_scale;
+        f32 tex_scale;
     } u;
 
     u.tex_scale = mat.tex_scale;
