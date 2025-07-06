@@ -14,7 +14,6 @@ struct Viewer
 {
     struct TextureDebugMaterial
     {
-
         GfxPipeline::Handle pipeline;
         struct
         {
