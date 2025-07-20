@@ -1,9 +1,6 @@
 #include "viewer.hpp"
 
-#include <type_traits>
-
 #include <dr/container_utils.hpp>
-#include <dr/meta.hpp>
 
 #include <dr/app/event_handlers.hpp>
 #include <dr/app/gfx_utils.hpp>
@@ -74,193 +71,6 @@ Handle const valid_or(Handle const handle, Handle const other)
 }
 
 template <typename T>
-[[maybe_unused]]
-constexpr bool always_false{false};
-
-template <typename Material>
-Material const* get_material(Viewer::TexturedMeshInstance const& inst)
-{
-    if constexpr (std::is_same_v<Material, Viewer::TextureDebugMaterial>)
-        return inst.material;
-    else
-        static_assert(always_false<Material>, "Material type not available");
-}
-
-template <typename Geometry>
-Geometry const* get_geometry(Viewer::TexturedMeshInstance const& inst)
-{
-    if constexpr (std::is_same_v<Geometry, Viewer::TexturedMeshGeometry>)
-        return inst.geometry;
-    else
-        static_assert(always_false<Geometry>, "Geometry type not available");
-}
-
-struct DrawContext
-{
-    struct
-    {
-        Mat4<f32> view_to_clip;
-        Mat4<f32> world_to_view;
-        Mat4<f32> world_to_clip;
-    } transforms;
-
-    GfxPipeline::Handle pipeline{};
-    sg_bindings bindings{};
-
-    bool apply_pipeline(GfxPipeline::Handle const pipeline)
-    {
-        // Avoid unecessary pipeline state change
-        if (pipeline.id != this->pipeline.id)
-        {
-            sg_apply_pipeline(pipeline);
-            this->pipeline = pipeline;
-            bindings = {};
-            return true;
-        }
-        return false;
-    }
-
-    template <typename Material>
-    bool apply_pipeline(Material const& mat)
-    {
-        using Default = DefaultResources<Material>;
-        return apply_pipeline(valid_or(mat.pipeline, Default::pipeline.handle()));
-    }
-
-    void apply_bindings() { sg_apply_bindings(bindings); }
-};
-
-void bind_resources(Viewer::TextureDebugMaterial const& mat, DrawContext& ctx)
-{
-    using Default = DefaultResources<Viewer::TextureDebugMaterial>;
-    ctx.bindings.images[0] = valid_or(mat.matcap.image, Default::matcap.image.handle());
-    ctx.bindings.samplers[0] = valid_or(mat.matcap.sampler, Default::matcap.sampler.handle());
-}
-
-void apply_uniforms(Viewer::TextureDebugMaterial const& mat, DrawContext const& /*ctx*/)
-{
-    struct
-    {
-        f32 tex_scale;
-    } u;
-
-    u.tex_scale = mat.tex_scale;
-    sg_apply_uniforms(UniformBlock_Material, {&u, sizeof(u)});
-}
-
-template <typename Material>
-void bind_resources(Viewer::TexturedMeshGeometry const& geom, DrawContext& ctx)
-{
-    using CompatMaterials = TypePack<Viewer::TextureDebugMaterial>;
-
-    // NOTE(dr): Can static dispatch based on bound material type
-    static_assert(
-        CompatMaterials::includes<Material>,
-        "Geometry type isn't compatible with bound material type");
-
-    ctx.bindings.vertex_buffers[0] = geom.mesh->vertices.buffer;
-    ctx.bindings.vertex_buffers[1] = geom.mesh->vertices.buffer;
-    ctx.bindings.vertex_buffer_offsets[1] = geom.mesh->vertices.count * sizeof(f32[3]);
-    ctx.bindings.vertex_buffers[2] = geom.tex_coords.buffer;
-    ctx.bindings.index_buffer = geom.mesh->indices.buffer;
-}
-
-template <typename Material>
-void apply_uniforms(Viewer::TexturedMeshGeometry const& /*geom*/, DrawContext const& /*ctx*/)
-{
-    using CompatMaterials = TypePack<Viewer::TextureDebugMaterial>;
-
-    // NOTE(dr): Can static dispatch based on bound material type
-    static_assert(
-        CompatMaterials::includes<Material>,
-        "Geometry type isn't compatible with bound material type");
-
-    // No uniforms for TexturedMeshGeometry
-    // ...
-}
-
-template <typename Material, typename Geometry>
-void draw(Viewer::TexturedMeshInstance const& inst, DrawContext const& ctx)
-{
-    using CompatMaterials = TypePack<Viewer::TextureDebugMaterial>;
-    using CompatGeometry = TypePack<Viewer::TexturedMeshGeometry>;
-
-    // NOTE(dr): Can static dispatch based on bound material and geometry types
-    static_assert(
-        CompatMaterials::includes<Material>,
-        "Instance type isn't compatible with bound material type");
-
-    static_assert(
-        CompatGeometry::includes<Geometry>,
-        "Instance type isn't compatible with bound geometry type");
-
-    // Update instance uniforms
-    {
-        Mat4<f32> const local_to_world = inst.transform.to_matrix();
-
-        struct
-        {
-            f32 local_to_clip[16];
-            f32 local_to_view[16];
-            int flatten;
-        } u;
-
-        as_mat<4, 4>(u.local_to_clip) = ctx.transforms.world_to_clip * local_to_world;
-        as_mat<4, 4>(u.local_to_view) = ctx.transforms.world_to_view * local_to_world;
-        u.flatten = inst.flatten;
-        sg_apply_uniforms(UniformBlock_Instance, {&u, sizeof(u)});
-    }
-
-    const isize num_indices = inst.geometry->mesh->indices.count;
-    sg_draw(0, num_indices, 1);
-}
-
-template <typename Material, typename Geometry, typename Instance>
-void draw_impl(DrawContext ctx, Span<Instance const> instances)
-{
-    Material const* prev_mat{};
-    Geometry const* prev_geom{};
-
-    for (Instance const& inst : instances)
-    {
-        Material const* mat = get_material<Material>(inst);
-        if (mat == nullptr)
-            continue;
-
-        Geometry const* geom = get_geometry<Geometry>(inst);
-        if (geom == nullptr)
-            continue;
-
-        bool pipeline_changed = false;
-        bool bindings_dirty = false;
-
-        // Update material
-        if (mat != prev_mat)
-        {
-            pipeline_changed = ctx.apply_pipeline(*mat);
-            bind_resources(*mat, ctx), bindings_dirty = true;
-            apply_uniforms(*mat, ctx);
-            prev_mat = mat;
-        }
-
-        // Update geometry
-        if (geom != prev_geom || pipeline_changed)
-        {
-            bind_resources<Material>(*geom, ctx), bindings_dirty = true;
-            apply_uniforms<Material>(*geom, ctx);
-            prev_geom = geom;
-        }
-
-        // Commit bound resources
-        if (bindings_dirty)
-            ctx.apply_bindings();
-
-        // Draw instance
-        draw<Material, Geometry>(inst, ctx);
-    }
-}
-
-template <typename T>
 sg_range to_range(Span<T> const& span)
 {
     return {span.data(), span.size() * sizeof(T)};
@@ -275,13 +85,119 @@ void init_resource(Resource& buf, typename Resource::Desc const& desc)
         buf = Resource::make(desc);
 }
 
-DrawContext make_draw_context(Viewer::View const& view)
+void set_pipeline(Viewer::DrawContext& ctx, GfxPipeline::Handle const pipeline)
 {
-    DrawContext ctx{};
-    ctx.transforms.view_to_clip = view.transforms.view_to_clip;
-    ctx.transforms.world_to_view = view.transforms.world_to_view;
-    ctx.transforms.world_to_clip = view.transforms.world_to_clip;
-    return ctx;
+    // Avoid unecessary pipeline change
+    if (pipeline.id == ctx.pipeline.id)
+        return;
+
+    sg_apply_pipeline(pipeline);
+    ctx.pipeline = pipeline;
+    ctx.bindings = {};
+    ctx.material = nullptr;
+    ctx.geometry = nullptr;
+}
+
+void set_material(Viewer::DrawContext& ctx, Viewer::TextureDebugMaterial const* material)
+{
+    using Default = DefaultResources<Viewer::TextureDebugMaterial>;
+    set_pipeline(ctx, valid_or(material->pipeline, Default::pipeline.handle()));
+
+    ctx.bindings.images[0] = valid_or(material->matcap.image, Default::matcap.image.handle());
+    ctx.bindings.samplers[0] = valid_or(material->matcap.sampler, Default::matcap.sampler.handle());
+
+    struct
+    {
+        f32 tex_scale;
+    } u;
+
+    u.tex_scale = material->tex_scale;
+    sg_apply_uniforms(UniformBlock_Material, {&u, sizeof(u)});
+
+    ctx.material = material;
+}
+
+template <typename Material>
+void set_geometry(Viewer::DrawContext& ctx, Viewer::TexturedMeshGeometry const* geometry)
+{
+    using OkMaterials = TypePack<Viewer::TextureDebugMaterial>;
+
+    // NOTE(dr): Can static dispatch based on bound material type
+    static_assert(
+        OkMaterials::includes<Material>,
+        "Geometry isn't compatible with bound material type");
+
+    ctx.bindings.vertex_buffers[0] = geometry->mesh->vertices.buffer;
+    ctx.bindings.vertex_buffers[1] = geometry->mesh->vertices.buffer;
+    ctx.bindings.vertex_buffer_offsets[1] = geometry->mesh->vertices.count * sizeof(f32[3]);
+    ctx.bindings.vertex_buffers[2] = geometry->tex_coords.buffer;
+    ctx.bindings.index_buffer = geometry->mesh->indices.buffer;
+
+    ctx.geometry = geometry;
+}
+
+template <typename Material>
+void submit_draw(Viewer::DrawContext const& ctx, Viewer::TexturedMesh const& object)
+{
+    using OkMaterials = TypePack<Viewer::TextureDebugMaterial>;
+
+    // NOTE(dr): Can static dispatch based on bound material and geometry types
+    static_assert(
+        OkMaterials::includes<Material>,
+        "Object isn't compatible with bound material type");
+
+    struct
+    {
+        f32 local_to_clip[16];
+        f32 local_to_view[16];
+        int flatten;
+    } u;
+
+    Mat4<f32> const local_to_world = object.transform.to_matrix();
+    as_mat<4, 4>(u.local_to_clip) = ctx.transforms.world_to_clip * local_to_world;
+    as_mat<4, 4>(u.local_to_view) = ctx.transforms.world_to_view * local_to_world;
+    u.flatten = object.flatten;
+    sg_apply_uniforms(UniformBlock_Object, {&u, sizeof(u)});
+
+    const isize num_indices = object.geometry->mesh->indices.count;
+    sg_draw(0, num_indices, 1);
+}
+
+template <int material_id, typename Object>
+void draw_impl(Viewer::DrawContext& ctx, Object const& object)
+{
+    using Material = typename Object::Materials::template At<material_id>;
+
+    auto mat = std::get<material_id>(object.materials);
+    if (mat == nullptr)
+        return;
+
+    auto geom = object.geometry;
+    if (geom == nullptr)
+        return;
+
+    bool bindings_dirty = false;
+
+    // Update material
+    if (mat != ctx.material)
+    {
+        set_material(ctx, mat);
+        bindings_dirty = true;
+    }
+
+    // Update geometry
+    if (geom != ctx.geometry)
+    {
+        set_geometry<Material>(ctx, geom);
+        bindings_dirty = true;
+    }
+
+    // Commit bound resources
+    if (bindings_dirty)
+        sg_apply_bindings(ctx.bindings);
+
+    // Submit draw call
+    submit_draw<Material>(ctx, object);
 }
 
 } // namespace
@@ -296,10 +212,25 @@ void Viewer::reload_default_shaders()
 void Viewer::update() { view.update(); }
 
 template <>
-void Viewer::draw<Viewer::TextureDebugMaterial, Viewer::TexturedMeshGeometry>(
-    Span<TexturedMeshInstance const> const& instances) const
+void Viewer::DrawContext::draw<0>(Viewer::TexturedMesh const& object)
 {
-    draw_impl<TextureDebugMaterial, TexturedMeshGeometry>(make_draw_context(view), instances);
+    draw_impl<0>(*this, object);
+}
+
+Viewer::DrawContext Viewer::make_draw_context() const
+{
+    DrawContext ctx{};
+
+    ctx.transforms.view_to_clip = make_perspective<NdcType_OpenGl>(
+        view.frustum.fov_y,
+        App::aspect(),
+        view.frustum.clip_near,
+        view.frustum.clip_far);
+
+    ctx.transforms.world_to_view = view.camera.transform().inverse_to_matrix();
+    ctx.transforms.world_to_clip = ctx.transforms.view_to_clip * ctx.transforms.world_to_view;
+
+    return ctx;
 }
 
 void Viewer::handle_event(App::Event const& event)
@@ -325,7 +256,7 @@ void Viewer::handle_event(App::Event const& event)
         input.last_num_touches);
 }
 
-GfxPipeline Viewer::TextureDebugMaterial::make_custom_pipeline(GfxShader::Handle shader)
+GfxPipeline Viewer::TextureDebugMaterial::make_pipeline(GfxShader::Handle shader)
 {
     return GfxPipeline::make(texture_debug_pipeline_desc(shader));
 }
@@ -384,34 +315,18 @@ Viewer::View::View()
 void Viewer::View::update()
 {
     f64 const dt_s = App::delta_time_s();
+    f32 const t = saturate(controls.sensitivity * dt_s);
 
-    // Update and apply controls
-    {
-        f32 const t = saturate(controls.sensitivity * dt_s);
+    controls.orbit.update(t);
+    controls.orbit.apply(camera);
 
-        controls.orbit.update(t);
-        controls.orbit.apply(camera);
+    controls.zoom.update(t);
+    controls.zoom.apply(camera);
 
-        controls.zoom.update(t);
-        controls.zoom.apply(camera);
+    controls.pan.update(t);
+    controls.pan.apply(camera);
 
-        controls.pan.update(t);
-        controls.pan.apply(camera);
-
-        camera.pivot.position += (target.position - camera.pivot.position) * t;
-    }
-
-    // Update transforms
-    {
-        transforms.view_to_clip = make_perspective<NdcType_OpenGl>(
-            frustum.fov_y,
-            App::aspect(),
-            frustum.clip_near,
-            frustum.clip_far);
-
-        transforms.world_to_view = camera.transform().inverse_to_matrix();
-        transforms.world_to_clip = transforms.view_to_clip * transforms.world_to_view;
-    }
+    camera.pivot.position += (target.position - camera.pivot.position) * t;
 }
 
 void Viewer::View::frame_target()

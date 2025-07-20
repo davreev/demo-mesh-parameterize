@@ -46,9 +46,9 @@ struct {
     Viewer viewer;
     struct {
         Viewer::TextureDebugMaterial texture_db_material;
-        Viewer::MeshGeometry mesh;
-        Viewer::TexturedMeshGeometry tex_mesh;
-        Viewer::TexturedMeshInstance tex_mesh_instances[2];
+        Viewer::MeshGeometry mesh_geom;
+        Viewer::TexturedMeshGeometry tex_mesh_geom;
+        Viewer::TexturedMesh tex_meshes[2];
     } scene;
 
     MeshAsset const* mesh;
@@ -80,12 +80,12 @@ void set_mesh(MeshAsset const* mesh)
 
     // Update mesh geometry and instances
     {
-        auto& geom = state.scene.mesh;
+        auto& geom = state.scene.mesh_geom;
         geom.set_indices(as_span(mesh->faces.vertex_ids));
         geom.set_vertices(as_span(mesh->vertices.positions), as_span(mesh->vertices.normals));
 
-        for (auto& inst : state.scene.tex_mesh_instances)
-            inst.geometry = nullptr;
+        for (auto& obj : state.scene.tex_meshes)
+            obj.geometry = nullptr;
     }
 }
 
@@ -122,15 +122,15 @@ void set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
 
     // Update mesh geometry and instances
     {
-        auto& tex_mesh = state.scene.tex_mesh;
+        auto& tex_mesh = state.scene.tex_mesh_geom;
         tex_mesh.set_tex_coords(dst);
 
-        for (auto& inst : state.scene.tex_mesh_instances)
-            inst.geometry = &tex_mesh;
+        for (auto& obj : state.scene.tex_meshes)
+            obj.geometry = &tex_mesh;
 
         // Fit instance to unit sphere
         {
-            Conformal3<f32>& xform = state.scene.tex_mesh_instances[0].transform = {};
+            Conformal3<f32>& xform = state.scene.tex_meshes[0].transform = {};
 
             auto const& [cen, rad] = state.mesh->bounds;
             f32 const s = 1.0f / rad;
@@ -141,7 +141,7 @@ void set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
 
         // Align flattened instance to YZ plane
         {
-            Conformal3<f32>& xform = state.scene.tex_mesh_instances[1].transform = {};
+            Conformal3<f32>& xform = state.scene.tex_meshes[1].transform = {};
 
             if (state.params.solve_method == SolveTexCoords::Method_None)
             {
@@ -457,9 +457,9 @@ void debug_draw_mesh_boundary(Mat4<f32> const& local_to_view)
     sgl_end();
 }
 
-void draw_debug()
+void draw_debug(Viewer::DrawContext const& ctx)
 {
-    auto const& xforms = state.viewer.view.transforms;
+    auto const& xforms = ctx.transforms;
 
     sgl_defaults();
 
@@ -468,10 +468,10 @@ void draw_debug()
 
     debug_draw_axes(xforms.world_to_view, 0.1f);
 
-    auto const inst = state.scene.tex_mesh_instances[state.params.flatten];
-    if (inst.geometry)
+    auto const obj = state.scene.tex_meshes[state.params.flatten];
+    if (obj.geometry)
     {
-        Mat4<f32> const local_to_world = inst.transform.to_matrix();
+        Mat4<f32> const local_to_world = obj.transform.to_matrix();
         debug_draw_mesh_boundary(xforms.world_to_view * local_to_world);
     }
 
@@ -487,14 +487,10 @@ void open(void* /*context*/)
     // Initialize scene
     {
         auto& scene = state.scene;
-        scene.tex_mesh.mesh = &scene.mesh;
-
-        auto& inst = scene.tex_mesh_instances[0];
-        inst.material = &scene.texture_db_material;
-
-        auto& flat_inst = scene.tex_mesh_instances[1];
-        flat_inst.material = &scene.texture_db_material;
-        flat_inst.flatten = true;
+        scene.tex_mesh_geom.mesh = &scene.mesh_geom;
+        scene.tex_meshes[0].materials = {&scene.texture_db_material};
+        scene.tex_meshes[1].materials = {&scene.texture_db_material};
+        scene.tex_meshes[1].flatten = true;
     }
 
     // Center camera on unit sphere
@@ -529,14 +525,13 @@ void draw(void* /*context*/)
         mat.tex_scale = state.params.tex_scale.value;
     }
 
-    auto const& inst = state.scene.tex_mesh_instances[state.params.flatten];
-    state.viewer.draw<
-        Viewer::TextureDebugMaterial,
-        Viewer::TexturedMeshGeometry,
-        Viewer::TexturedMeshInstance>({&inst, 1});
-
-    draw_debug();
-    draw_ui();
+    // Submit draw calls
+    {
+        auto ctx = state.viewer.make_draw_context();
+        ctx.draw<0>(state.scene.tex_meshes[state.params.flatten]);
+        draw_debug(ctx);
+        draw_ui();
+    }
 }
 
 void handle_event(void* /*context*/, App::Event const& event)

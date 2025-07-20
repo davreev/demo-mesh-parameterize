@@ -2,6 +2,7 @@
 
 #include <dr/basic_types.hpp>
 #include <dr/math_types.hpp>
+#include <dr/meta.hpp>
 
 #include <dr/app/app.hpp>
 #include <dr/app/camera.hpp>
@@ -12,9 +13,13 @@ namespace dr
 
 struct Viewer
 {
-    struct TextureDebugMaterial
+    struct Material
     {
         GfxPipeline::Handle pipeline;
+    };
+
+    struct TextureDebugMaterial : Material
+    {
         struct
         {
             GfxImage::Handle image;
@@ -22,7 +27,7 @@ struct Viewer
         } matcap;
         f32 tex_scale;
 
-        static GfxPipeline make_custom_pipeline(GfxShader::Handle shader);
+        static GfxPipeline make_pipeline(GfxShader::Handle shader);
     };
 
     template <isize stride_>
@@ -57,11 +62,22 @@ struct Viewer
         void set_tex_coords(Span<Vec2<f32> const> const& values);
     };
 
-    struct TexturedMeshInstance
+    template <typename Geometry_, typename... Materials_>
+    struct Object
+    {
+        using Geometry = Geometry_;
+        using Materials = TypePack<Materials_...>;
+
+        template <typename T>
+        using ConstPtr = T const*;
+
+        Geometry const* geometry;
+        std::tuple<ConstPtr<Materials_>...> materials;
+    };
+
+    struct TexturedMesh : Object<TexturedMeshGeometry, TextureDebugMaterial>
     {
         Conformal3<f32> transform;
-        TexturedMeshGeometry const* geometry;
-        TextureDebugMaterial const* material;
         bool flatten;
     };
 
@@ -89,16 +105,11 @@ struct Viewer
             Vec3<f32> position{};
             f32 radius{1.0f};
         } target;
-        
-        struct 
-        {
-            Mat4<f32> view_to_clip;
-            Mat4<f32> world_to_view;
-            Mat4<f32> world_to_clip;
-        } transforms;
 
         View();
+
         void update();
+
         void frame_target();
     };
 
@@ -109,16 +120,36 @@ struct Viewer
         bool mouse_down[3];
     };
 
+    struct DrawContext
+    {
+        using GfxBindings = sg_bindings;
+
+        struct
+        {
+            Mat4<f32> view_to_clip;
+            Mat4<f32> world_to_view;
+            Mat4<f32> world_to_clip;
+        } transforms;
+
+        GfxPipeline::Handle pipeline;
+        GfxBindings bindings;
+        void const* material;
+        void const* geometry;
+
+        template <int material_id, typename Object>
+        void draw(Object const& object);
+    };
+
     View view;
     Input input;
 
     static void init_default_resources();
+
     static void reload_default_shaders();
 
     void update();
 
-    template <typename Material, typename Geometry, typename Instance>
-    void draw(Span<Instance const> const& instances) const;
+    DrawContext make_draw_context() const;
 
     void handle_event(App::Event const& event);
 };

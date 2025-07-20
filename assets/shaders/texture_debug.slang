@@ -6,13 +6,13 @@ struct Material
 }
 ConstantBuffer<Material> material;
 
-struct Instance
+struct Object
 {
     float4x4 local_to_clip;
     float4x4 local_to_view;
     int flatten;
 }
-ConstantBuffer<Instance> instance;
+ConstantBuffer<Object> object;
 
 Sampler2D matcap;
 
@@ -26,13 +26,13 @@ struct Vertex
 [shader("vertex")]
 float4 vertex_main(Vertex v, out float3 view_normal, out float2 tex_coord) : SV_Position
 {
-    float3 pos = select(bool(instance.flatten), float3(v.tex_coord, 0.0), v.position);
+    float3 pos = select(bool(object.flatten), float3(v.tex_coord, 0.0), v.position);
 
     // NOTE(dr): This assumes local_to_view has uniform scaling
-    view_normal = normalize(mul(float3x3(instance.local_to_view), v.normal));
+    view_normal = normalize(mul(float3x3(object.local_to_view), v.normal));
     tex_coord = v.tex_coord;
 
-    return mul(instance.local_to_clip, { pos, 1.0 });
+    return mul(object.local_to_clip, { pos, 1.0 });
 }
 
 float3 proc_tex(float2 p)
