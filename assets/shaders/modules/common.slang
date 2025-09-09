@@ -6,6 +6,23 @@ float luminance(float3 col)
     return dot(col, coeffs);
 }
 
+float4 sample_matcap(Sampler2D sampler, float3 view_normal)
+{
+    float2 uv = view_normal.xy * 0.5 + 0.5;
+    return sampler.SampleLevel(uv, 0.0);
+}
+
+void apply_matcap_shading(
+    Sampler2D sampler,
+    float3 view_normal,
+    float intensity,
+    float neutral,
+    inout float4 col)
+{
+    float bright = luminance(sample_matcap(sampler, view_normal).rgb);
+    col += (bright - neutral) * intensity;
+}
+
 float checker(float2 p)
 {
     p = floor(p);

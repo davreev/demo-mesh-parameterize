@@ -57,22 +57,15 @@ float3 proc_tex_aa(float2 p)
     return col * 0.2;
 }
 
-float3 matcap_shade(float3 base_color, float3 view_normal, float intensity, float neutral)
-{
-    float2 uv = view_normal.xy * 0.5 + 0.5;
-    float offset = luminance(matcap.SampleLevel(uv, 0.0).rgb) - neutral;
-    return base_color + offset * intensity;
-}
-
 [shader("fragment")]
 float4 fragment_main(float3 view_normal, float2 tex_coord, bool is_front_face: SV_IsFrontFace) :
     SV_Target
 {
-    float3 base_col = proc_tex_aa(tex_coord / material.tex_scale);
-    float3 col = matcap_shade(base_col, normalize(view_normal), 1.2, 0.95);
+    float4 col = { proc_tex_aa(tex_coord / material.tex_scale), 1.0 };
+    apply_matcap_shading(matcap, normalize(view_normal), 1.2, 0.95, col);
 
     if (is_front_face)
-        col *= 0.5;
+        col.rgb *= 0.5;
 
-    return { col, 1.0 };
+    return col;
 }
