@@ -1,5 +1,5 @@
-#ifndef GRAPHICS_H
-#define GRAPHICS_H
+#ifndef VIEWER_H
+#define VIEWER_H
 
 #include <sokol_gfx.h>
 
@@ -28,4 +28,4 @@ sg_buffer_desc mesh_index_buffer_desc(size_t size);
 } // extern "C"
 #endif
 
-#endif // GRAPHICS_H
+#endif // VIEWER_H

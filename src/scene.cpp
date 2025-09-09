@@ -15,6 +15,7 @@
 #include <dr/app/thread_pool.hpp>
 
 #include "assets.hpp"
+#include "orbit_camera.hpp"
 #include "tasks.hpp"
 #include "viewer.hpp"
 
@@ -50,6 +51,8 @@ struct {
         Viewer::TexturedMeshGeometry tex_mesh_geom;
         Viewer::TexturedMesh tex_meshes[2];
     } scene;
+
+    OrbitCamera camera;
 
     MeshAsset const* mesh;
     DynamicArray<Vec2<f32>> tex_coords;
@@ -493,10 +496,10 @@ void open(void* /*context*/)
 
     // Center camera on unit sphere
     {
-        auto& view = state.viewer.view;
-        view.target.position = vec<3>(0.0f);
-        view.target.radius = 1.2f;
-        view.frame_target();
+        auto& cam = state.camera;
+        cam.target.position = vec<3>(0.0f);
+        cam.target.radius = 1.2f;
+        cam.frame_target();
     }
 
     // Load default mesh asset and solve
@@ -511,7 +514,7 @@ void close(void* /*context*/)
 
 void update(void* /*context*/)
 {
-    state.viewer.update();
+    state.camera.update();
     state.task_queue.poll();
 }
 
@@ -525,7 +528,11 @@ void draw(void* /*context*/)
 
     // Submit draw calls
     {
-        auto ctx = state.viewer.make_draw_context();
+        OrbitCamera const& cam = state.camera;
+        Viewer::DrawContext ctx = Viewer::make_draw_context(
+            cam.make_world_to_view(),
+            cam.make_view_to_clip());
+            
         ctx.draw<0>(state.scene.tex_meshes[state.params.flatten]);
         draw_debug(ctx);
         draw_ui();
@@ -534,7 +541,7 @@ void draw(void* /*context*/)
 
 void handle_event(void* /*context*/, App::Event const& event)
 {
-    state.viewer.handle_event(event);
+    state.camera.handle_event(event);
 
     switch (event.type)
     {
@@ -545,7 +552,7 @@ void handle_event(void* /*context*/, App::Event const& event)
                 case SAPP_KEYCODE_F:
                 {
                     if (is_mouse_over(event))
-                        state.viewer.view.frame_target();
+                        state.camera.frame_target();
 
                     break;
                 };
