@@ -481,7 +481,7 @@ void draw_debug(Viewer::DrawContext const& ctx)
 
 void open(void* /*context*/)
 {
-    thread_pool_start(1);
+    ThreadPool::start(1);
 
     Viewer::init_default_resources();
 
@@ -509,7 +509,7 @@ void open(void* /*context*/)
 void close(void* /*context*/)
 {
     release_all_assets();
-    thread_pool_stop();
+    ThreadPool::stop();
 }
 
 void update(void* /*context*/)
