@@ -26,7 +26,7 @@ struct Vertex
 [shader("vertex")]
 float4 vertex_main(Vertex v, out float3 view_normal, out float2 tex_coord) : SV_Position
 {
-    float3 pos = select(bool(object.flatten), float3(v.tex_coord, 0.0), v.position);
+    const float3 pos = select(bool(object.flatten), float3(v.tex_coord, 0.0), v.position);
 
     // NOTE(dr): This assumes local_to_view has uniform scaling
     view_normal = normalize(mul(float3x3(object.local_to_view), v.normal));
@@ -47,8 +47,8 @@ float3 proc_tex_aa(float2 p)
     // TODO(dr): Could approximate integral of proc_tex over pixel in screenspace?
 
     // NOTE(dr): Filter procedural texture using screen space stencil centered at p
-    float2 dp_x = 0.25 * ddx(p);
-    float2 dp_y = 0.25 * ddy(p);
+    const float2 dp_x = 0.25 * ddx(p);
+    const float2 dp_y = 0.25 * ddy(p);
     float3 col = proc_tex(p);
     col += proc_tex(p - dp_x);
     col += proc_tex(p + dp_x);
