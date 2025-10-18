@@ -43,7 +43,6 @@ struct {
 } constexpr scene_info{};
 
 struct {
-    Viewer viewer;
     struct {
         Viewer::TextureDebugMaterial texture_db_material;
         Viewer::MeshGeometry mesh_geom;
