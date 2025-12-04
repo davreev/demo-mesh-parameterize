@@ -4,8 +4,7 @@
 
 ![](https://spatialslur.com/demos/mesh-parameterize-400.png)
 
-Demo and reference implementations of mesh parameterization methods [^1] [^2] for automated texture
-mapping of triangle meshes.
+Demo and reference implementations of mesh parameterization methods [^1] [^2].
 
 Try it here: https://davreev.gitlab.io/demos/mesh-parameterize/
 
@@ -14,8 +13,7 @@ Try it here: https://davreev.gitlab.io/demos/mesh-parameterize/
 
 ## Build
 
-This project can be built to run natively or in a web browser. Build instructions vary slightly
-between the two targets.
+This project can be built to run natively or in a web browser.
 
 ### Native Build
 
