@@ -9,8 +9,8 @@ project(
 # Global config
 #
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 list(
     PREPEND CMAKE_MODULE_PATH 
@@ -33,7 +33,6 @@ add_executable(
     "src/main.cpp"
     "src/scene.cpp"
     "src/tasks.cpp"
-    "src/viewer.c"
     "src/viewer.cpp"
 )
 

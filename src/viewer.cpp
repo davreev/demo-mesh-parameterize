@@ -3,12 +3,22 @@
 #include <dr/linalg_reshape.hpp>
 
 #include "assets.hpp"
-#include "viewer.h"
 
 namespace dr
 {
 namespace
 {
+
+enum UniformBlock : u8
+{
+    UniformBlock_Material = 0,
+    UniformBlock_Geometry,
+    UniformBlock_Object,
+    _UniformBlock_Count,
+};
+
+// NOTE(dr): The assigned shader stage doesn't appear to matter when using OpenGL backends
+static sg_shader_stage const shader_stage_any = SG_SHADERSTAGE_VERTEX;
 
 template <typename T>
 struct DefaultResources;
@@ -24,6 +34,112 @@ struct DefaultResources<Viewer::TextureDebugMaterial>
         GfxSampler sampler;
     } inline static matcap;
 
+    static GfxShader::Desc shader_desc(char const* const vs_src, char const* const fs_src)
+    {
+        return {
+            .vertex_func{.source = vs_src},
+            .fragment_func{.source = fs_src},
+            .uniform_blocks{
+                {
+                    // Material block
+                    .stage = shader_stage_any,
+                    .size = sizeof(f32),
+                    .glsl_uniforms{
+                        {.type = SG_UNIFORMTYPE_FLOAT, .glsl_name = "material.tex_scale"},
+                    },
+                },
+                {
+                    // Geometry block
+                },
+                {
+                    // Object block
+                    .stage = shader_stage_any,
+                    .size = sizeof(f32[16 * 2 + 1]),
+                    .glsl_uniforms{
+                        {
+                            .type = SG_UNIFORMTYPE_FLOAT4,
+                            .array_count = 4,
+                            .glsl_name = "object.local_to_clip.data",
+
+                        },
+                        {
+                            .type = SG_UNIFORMTYPE_FLOAT4,
+                            .array_count = 4,
+                            .glsl_name = "object.local_to_view.data",
+
+                        },
+                        {
+                            .type = SG_UNIFORMTYPE_INT,
+                            .glsl_name = "object.flatten",
+                        },
+                    },
+                },
+            },
+            .images{
+                {.stage = shader_stage_any},
+            },
+            .samplers{
+                {.stage = shader_stage_any},
+            },
+            .image_sampler_pairs{
+                {
+                    .stage = shader_stage_any,
+                    .image_slot = 0,
+                    .sampler_slot = 0,
+                    .glsl_name = "matcap",
+                },
+            },
+        };
+    }
+
+    static GfxPipeline::Desc pipeline_desc(GfxShader::Handle const shader)
+    {
+        return {
+            .shader = shader,
+            .layout{
+                .attrs{
+                    {.buffer_index = 0, .format = SG_VERTEXFORMAT_FLOAT3},
+                    {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT3},
+                    {.buffer_index = 2, .format = SG_VERTEXFORMAT_FLOAT2},
+                },
+            },
+            .depth{
+                .compare = SG_COMPAREFUNC_LESS,
+                .write_enabled = true,
+            },
+            .index_type = SG_INDEXTYPE_UINT32,
+            .face_winding = SG_FACEWINDING_CCW,
+        };
+    }
+
+    static GfxImage::Desc matcap_image_desc(
+        void const* const data,
+        int const width,
+        int const height)
+    {
+        return {
+            .width = width,
+            .height = height,
+            .usage = SG_USAGE_IMMUTABLE,
+            .pixel_format = SG_PIXELFORMAT_RGBA8,
+            .data{
+                .subimage{
+                    {
+                        {.ptr = data, .size = usize(width * height * 4)},
+                    },
+                },
+            },
+        };
+    }
+
+    static GfxSampler::Desc matcap_sampler_desc()
+    {
+        return {
+            .min_filter = SG_FILTER_LINEAR,
+            .mag_filter = SG_FILTER_LINEAR,
+        };
+    }
+
     static void init_shader()
     {
         ShaderAsset const* vs = get_asset(AssetHandle::Shader_TextureDebugVert, true);
@@ -32,7 +148,7 @@ struct DefaultResources<Viewer::TextureDebugMaterial>
         ShaderAsset const* fs = get_asset(AssetHandle::Shader_TextureDebugFrag, true);
         assert(fs);
 
-        shader.init(texture_debug_shader_desc(vs->src.c_str(), fs->src.c_str()));
+        shader.init(shader_desc(vs->src.c_str(), fs->src.c_str()));
         assert(shader.is_valid());
     };
 
@@ -43,7 +159,7 @@ struct DefaultResources<Viewer::TextureDebugMaterial>
         shader = GfxShader::alloc();
         init_shader();
 
-        pipeline = GfxPipeline::make(texture_debug_pipeline_desc(shader));
+        pipeline = GfxPipeline::make(pipeline_desc(shader));
         assert(pipeline.is_valid());
 
         {
@@ -51,13 +167,35 @@ struct DefaultResources<Viewer::TextureDebugMaterial>
             assert(image);
 
             matcap.image = GfxImage::make(
-                texture_debug_matcap_image_desc(image->data.get(), image->width, image->height));
+                matcap_image_desc(image->data.get(), image->width, image->height));
             assert(matcap.image.is_valid());
 
-            matcap.sampler = GfxSampler::make(texture_debug_matcap_sampler_desc());
+            matcap.sampler = GfxSampler::make(matcap_sampler_desc());
             assert(matcap.sampler.is_valid());
         }
     };
+};
+
+template <>
+struct DefaultResources<Viewer::MeshGeometry>
+{
+    static GfxBuffer::Desc vertex_buffer_desc(usize const size)
+    {
+        return {
+            .size = size,
+            .type = SG_BUFFERTYPE_VERTEXBUFFER,
+            .usage = SG_USAGE_DYNAMIC,
+        };
+    }
+
+    static GfxBuffer::Desc index_buffer_desc(usize const size)
+    {
+        return {
+            .size = size,
+            .type = SG_BUFFERTYPE_INDEXBUFFER,
+            .usage = SG_USAGE_DYNAMIC,
+        };
+    }
 };
 
 // Returns the given handle if it's valid. Otherwise, returns the given default.
@@ -230,19 +368,22 @@ Viewer::DrawContext Viewer::make_draw_context(
 
 GfxPipeline Viewer::TextureDebugMaterial::make_pipeline(GfxShader::Handle shader)
 {
-    return GfxPipeline::make(texture_debug_pipeline_desc(shader));
+    using Default = DefaultResources<TextureDebugMaterial>;
+    return GfxPipeline::make(Default::pipeline_desc(shader));
 }
 
 void Viewer::MeshGeometry::set_vertices(
     Span<Vec3<f32> const> const& positions,
     Span<Vec3<f32> const> const& normals)
 {
+    using Default = DefaultResources<MeshGeometry>;
+
     assert(positions.size() == normals.size());
 
     vertices.count = positions.size();
     if (vertices.count > vertices.capacity)
     {
-        init_resource(vertices.buffer, mesh_vertex_buffer_desc(vertices.size()));
+        init_resource(vertices.buffer, Default::vertex_buffer_desc(vertices.size()));
         vertices.capacity = vertices.count;
     }
 
@@ -252,10 +393,12 @@ void Viewer::MeshGeometry::set_vertices(
 
 void Viewer::MeshGeometry::set_indices(Span<Vec3<i32> const> const& faces)
 {
+    using Default = DefaultResources<MeshGeometry>;
+
     indices.count = faces.size() * 3;
     if (indices.count > indices.capacity)
     {
-        init_resource(indices.buffer, mesh_index_buffer_desc(indices.size()));
+        init_resource(indices.buffer, Default::index_buffer_desc(indices.size()));
         indices.capacity = indices.count;
     }
 
@@ -264,13 +407,15 @@ void Viewer::MeshGeometry::set_indices(Span<Vec3<i32> const> const& faces)
 
 void Viewer::TexturedMeshGeometry::set_tex_coords(Span<Vec2<f32> const> const& values)
 {
+    using Default = DefaultResources<MeshGeometry>;
+
     assert(mesh != nullptr);
     assert(values.size() == mesh->vertices.count);
 
     tex_coords.count = values.size();
     if (tex_coords.count > tex_coords.capacity)
     {
-        init_resource(tex_coords.buffer, mesh_vertex_buffer_desc(tex_coords.size()));
+        init_resource(tex_coords.buffer, Default::vertex_buffer_desc(tex_coords.size()));
         tex_coords.capacity = tex_coords.count;
     }
 
