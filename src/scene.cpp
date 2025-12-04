@@ -155,7 +155,8 @@ void set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
             }
             else
             {
-                xform.rotation.q = {pi<f32> * -0.5f, Vec3<f32>::UnitY()};
+                using AngleAxis = Quat<f32>::AngleAxisType;
+                xform.rotation.q = AngleAxis{pi<f32> * -0.5f, Vec3<f32>::UnitY()};
             }
         }
     }
