@@ -31,9 +31,10 @@ add_executable(
     "src/assets.cpp"
     "src/impl.cpp"
     "src/main.cpp"
+    "src/renderer.cpp"
     "src/scene.cpp"
     "src/tasks.cpp"
-    "src/viewer.cpp"
+    "src/utils.cpp"
 )
 
 include(deps/dr-app)

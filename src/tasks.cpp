@@ -63,8 +63,11 @@ void SolveTexCoords::operator()()
     {
         case Method_None:
         {
+            using namespace Eigen::placeholders;
+
             // Take texture coords directly from vertex positions
-            as_mat(tc) = input.mesh->vertices.positions.bottomRows(2);
+            as_mat(tc) = input.mesh->vertices.positions({2, 1}, all);
+
             break;
         }
         case Method_LeastSquaresConformal:
@@ -106,19 +109,18 @@ void SolveTexCoords::operator()()
                 return;
             }
 
-            // Apply conformal xform that places ref verts at (1.0, 0.0) and (-1.0, 0.0)
+            // Apply conformal transform that places ref verts at (-1, 0) and (1, 0)
             {
-                constexpr auto perp_ccw = [](Vec2<f32> const& a) { return vec(-a[1], a[0]); };
-
                 auto const [v0, v1] = unpack(input.ref_verts);
                 Vec2<f32> const d = tc[v1] - tc[v0];
 
                 Mat2<f32> const r_s = mat(d, perp_ccw(d)).transpose() * (2.0f / d.squaredNorm());
                 Vec2<f32> const t = -(tc[v0] + d * 0.5f);
-                
+
                 for (auto& p : tc)
                     p = r_s * (p + t);
             }
+
             break;
         }
         default:

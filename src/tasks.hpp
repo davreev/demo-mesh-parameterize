@@ -68,7 +68,7 @@ struct SolveTexCoords
 
     struct
     {
-        MeshAsset const* mesh;
+        MeshAsset const* mesh{};
         Span<Vec2<i32> const> boundary_edge_verts;
         Vec2<i32> ref_verts;
         Method method;

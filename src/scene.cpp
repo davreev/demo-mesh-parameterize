@@ -15,85 +15,92 @@
 #include <dr/app/thread_pool.hpp>
 
 #include "assets.hpp"
+#include "renderer.hpp"
 #include "tasks.hpp"
-#include "viewer.hpp"
+#include "utils.hpp"
 
 namespace dr
 {
 namespace
 {
 
-template <typename Scalar>
-struct Param
+struct
 {
-    Scalar value{};
-    Scalar min{};
-    Scalar max{};
-};
-
-// clang-format off
-struct {
     char const* name = "Mesh Parameterize";
     char const* author = "David Reeves";
-    struct {
+    struct
+    {
         u16 major{0};
         u16 minor{5};
         u16 patch{0};
     } version;
 } constexpr scene_info{};
 
-struct {
-    struct {
-        Viewer::TextureDebugMaterial texture_db_material;
-        Viewer::MeshGeometry mesh_geom;
-        Viewer::TexturedMeshGeometry tex_mesh_geom;
-        Viewer::TexturedMesh tex_meshes[2];
-    } scene;
-
+struct
+{
+    Renderer renderer;
     OrbitCamera camera;
 
-    MeshAsset const* mesh;
-    DynamicArray<Vec2<f32>> tex_coords;
-    DynamicArray<Vec2<i32>> boundary_edge_verts;
-    Vec2<i32> ref_verts;
+    struct
+    {
+        MeshAsset const* asset{};
+        DynamicArray<Vec2<f32>> tex_coords;
+        DynamicArray<Vec2<i32>> boundary_edge_verts;
+        Vec2<i32> ref_verts;
+        Conformal3<f32> xform;
+        Conformal3<f32> tex_xform;
+        struct
+        {
+            Buffer<sizeof(i32)> index;
+            Buffer<sizeof(f32[6])> vertex;
+            Buffer<sizeof(f32[2])> tex_map;
+        } gpu;
+    } mesh;
 
     TaskQueue task_queue;
-    struct {
+    struct
+    {
         LoadMeshAsset load_mesh_asset;
         ExtractMeshBoundary extract_boundary;
         SolveTexCoords solve_tex_coords;
     } tasks;
 
-    struct {
+    struct
+    {
         Param<f32> tex_scale{0.01f, 0.001f, 0.1f};
         AssetHandle::Mesh mesh_handle;
         SolveTexCoords::Method solve_method{SolveTexCoords::Method_LeastSquaresConformal};
-        bool flatten;
+        bool flatten{};
     } params;
-} state{};
-// clang-format on
+} state;
 
-void set_mesh(MeshAsset const* mesh)
+void mesh_set_asset(MeshAsset const* asset)
 {
-    state.mesh = mesh;
-    state.tex_coords.assign(mesh->vertices.count(), {});
-    state.boundary_edge_verts.clear();
+    assert(asset);
 
-    // Update mesh geometry and instances
-    {
-        auto& geom = state.scene.mesh_geom;
-        geom.set_indices(as_span(mesh->faces.vertex_ids));
-        geom.set_vertices(as_span(mesh->vertices.positions), as_span(mesh->vertices.normals));
+    auto& mesh = state.mesh;
+    mesh.asset = asset;
 
-        for (auto& obj : state.scene.tex_meshes)
-            obj.geometry = nullptr;
-    }
+    // Update GPU buffers
+    set_mesh_indices(mesh.gpu.index, as_span(asset->faces.vertex_ids));
+    set_mesh_vertices(
+        mesh.gpu.vertex,
+        as_span(asset->vertices.positions),
+        as_span(asset->vertices.normals));
+
+    // Fit to unit sphere in world space
+    auto const& [cen, rad] = asset->bounds;
+    f32 const scale = 1.0f / rad;
+    mesh.xform = {
+        .translation = -cen * scale,
+        .scale = scale,
+    };
 }
 
-void set_mesh_boundary(Span<Vec2<i32> const> const& boundary_edge_verts)
+void mesh_set_boundary(Span<Vec2<i32> const> const& boundary_edge_verts)
 {
-    auto const& src = boundary_edge_verts;
-    state.boundary_edge_verts.assign(begin(src), end(src));
+    auto& mesh = state.mesh;
+    mesh.boundary_edge_verts.assign(begin(boundary_edge_verts), end(boundary_edge_verts));
 
     // Update ref verts
     {
@@ -112,54 +119,41 @@ void set_mesh_boundary(Span<Vec2<i32> const> const& boundary_edge_verts)
             {100, 164}, // VW Bug
         };
         static_assert(size(table) == AssetHandle::_Mesh_Count);
-        state.ref_verts = table[state.params.mesh_handle];
+        mesh.ref_verts = table[state.params.mesh_handle];
     }
 };
 
-void set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
+void mesh_set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
 {
-    auto const dst = as_span(state.tex_coords);
-    as_mat(dst) = as_mat(tex_coords);
+    assert(tex_coords);
 
-    // Update mesh geometry and instances
-    {
-        auto& tex_mesh = state.scene.tex_mesh_geom;
-        tex_mesh.set_tex_coords(dst);
+    auto& mesh = state.mesh;
+    mesh.tex_coords.assign(begin(tex_coords), end(tex_coords));
 
-        for (auto& obj : state.scene.tex_meshes)
-            obj.geometry = &tex_mesh;
+    // Update GPU buffer
+    set_mesh_vertices(mesh.gpu.tex_map, tex_coords);
 
-        // Fit instance to unit sphere
-        {
-            Conformal3<f32>& xform = state.scene.tex_meshes[0].transform = {};
+    // Places flattened mesh on yz plane
+    static Quat<f32> const rot{
+        mat(vec(0.0f, 0.0f, 1.0f), vec(0.0f, 1.0f, 0.0f), vec(-1.0f, 0.0f, 0.0f))};
+    mesh.tex_xform = {.rotation{.q = rot}};
 
-            auto const& [cen, rad] = state.mesh->bounds;
-            f32 const s = 1.0f / rad;
+    // Also fit to unit sphere if no texture map
+    if (state.params.solve_method == SolveTexCoords::Method_None)
+        mesh.tex_xform.scale = mesh.xform.scale;
+}
 
-            xform.scale = s;
-            xform.translation = -cen * s;
-        }
+bool mesh_has_tex_coords() { return state.mesh.gpu.tex_map.count > 0; }
 
-        // Align flattened instance to YZ plane
-        {
-            Conformal3<f32>& xform = state.scene.tex_meshes[1].transform = {};
-
-            if (state.params.solve_method == SolveTexCoords::Method_None)
-            {
-                // Fit to unit sphere
-                xform.scale = 1.0f / state.mesh->bounds.radius;
-                xform.rotation.q = mat(
-                    vec(0.0f, 1.0f, 0.0f),
-                    vec(0.0f, 0.0f, 1.0f),
-                    vec(1.0f, 0.0f, 0.0f));
-            }
-            else
-            {
-                using AngleAxis = Quat<f32>::AngleAxisType;
-                xform.rotation.q = AngleAxis{pi<f32> * -0.5f, Vec3<f32>::UnitY()};
-            }
-        }
-    }
+void mesh_clear()
+{
+    auto& mesh = state.mesh;
+    mesh.asset = nullptr;
+    mesh.tex_coords.clear();
+    mesh.boundary_edge_verts.clear();
+    mesh.gpu.index.count = 0;
+    mesh.gpu.vertex.count = 0;
+    mesh.gpu.tex_map.count = 0;
 }
 
 void schedule_task(LoadMeshAsset& task)
@@ -177,7 +171,7 @@ void schedule_task(LoadMeshAsset& task)
             };
             case Event::AfterComplete:
             {
-                set_mesh(task->output.mesh);
+                mesh_set_asset(task->output.mesh);
                 return true;
             };
             default:
@@ -198,12 +192,12 @@ void schedule_task(ExtractMeshBoundary& task)
         {
             case Event::BeforeSubmit:
             {
-                task->input.mesh = state.mesh;
+                task->input.mesh = state.mesh.asset;
                 return true;
             };
             case Event::AfterComplete:
             {
-                set_mesh_boundary(task->output.boundary_edge_verts);
+                mesh_set_boundary(task->output.boundary_edge_verts);
                 return true;
             };
             default:
@@ -224,15 +218,15 @@ void schedule_task(SolveTexCoords& task)
         {
             case Event::BeforeSubmit:
             {
-                task->input.mesh = state.mesh;
-                task->input.boundary_edge_verts = as_span(state.boundary_edge_verts);
-                task->input.ref_verts = state.ref_verts;
+                task->input.mesh = state.mesh.asset;
+                task->input.boundary_edge_verts = as_span(state.mesh.boundary_edge_verts);
+                task->input.ref_verts = state.mesh.ref_verts;
                 task->input.method = state.params.solve_method;
                 return true;
             };
             case Event::AfterComplete:
             {
-                set_tex_coords(task->output.tex_coords);
+                mesh_set_tex_coords(task->output.tex_coords);
                 return true;
             };
             default:
@@ -245,6 +239,7 @@ void schedule_task(SolveTexCoords& task)
 
 void on_mesh_asset_change()
 {
+    mesh_clear();
     schedule_task(state.tasks.load_mesh_asset);
     state.task_queue.barrier();
     schedule_task(state.tasks.extract_boundary);
@@ -424,8 +419,16 @@ void draw_ui()
     draw_status_tooltip();
 }
 
-void debug_draw_mesh_boundary(Mat4<f32> const& local_to_view)
+void debug_draw_mesh_boundary(Mat4<f32> const& world_to_view)
 {
+    auto const& mesh = state.mesh;
+    assert(mesh.asset);
+
+    Mat4<f32> const local_to_world = state.params.flatten //
+        ? mesh.tex_xform.to_matrix()
+        : mesh.xform.to_matrix();
+    Mat4<f32> const local_to_view = world_to_view * local_to_world;
+
     sgl_matrix_mode_modelview();
     sgl_load_matrix(local_to_view.data());
 
@@ -434,8 +437,8 @@ void debug_draw_mesh_boundary(Mat4<f32> const& local_to_view)
 
     if (state.params.flatten)
     {
-        auto const v_p = as_span(state.tex_coords);
-        for (auto const& e_v : state.boundary_edge_verts)
+        auto const v_p = as_span(mesh.tex_coords);
+        for (auto const& e_v : mesh.boundary_edge_verts)
         {
             auto const& p0 = v_p[e_v[0]];
             sgl_v3f(p0.x(), p0.y(), 0.0f);
@@ -446,8 +449,8 @@ void debug_draw_mesh_boundary(Mat4<f32> const& local_to_view)
     }
     else
     {
-        auto const v_p = as_span(state.mesh->vertices.positions);
-        for (auto const& e_v : state.boundary_edge_verts)
+        auto const v_p = as_span(mesh.asset->vertices.positions);
+        for (auto const& e_v : mesh.boundary_edge_verts)
         {
             auto const& p0 = v_p[e_v[0]];
             sgl_v3f(p0.x(), p0.y(), p0.z());
@@ -460,23 +463,17 @@ void debug_draw_mesh_boundary(Mat4<f32> const& local_to_view)
     sgl_end();
 }
 
-void draw_debug(Viewer::DrawContext const& ctx)
+void draw_debug(Mat4<f32> const& world_to_view, Mat4<f32> const& view_to_clip)
 {
-    auto const& xforms = ctx.transforms;
-
     sgl_defaults();
 
     sgl_matrix_mode_projection();
-    sgl_load_matrix(xforms.view_to_clip.data());
+    sgl_load_matrix(view_to_clip.data());
 
-    debug_draw_axes(xforms.world_to_view, 0.1f);
+    debug_draw_axes(world_to_view, 0.1f);
 
-    auto const obj = state.scene.tex_meshes[state.params.flatten];
-    if (obj.geometry)
-    {
-        Mat4<f32> const local_to_world = obj.transform.to_matrix();
-        debug_draw_mesh_boundary(xforms.world_to_view * local_to_world);
-    }
+    if (mesh_has_tex_coords())
+        debug_draw_mesh_boundary(world_to_view);
 
     sgl_draw();
 }
@@ -485,16 +482,7 @@ void open(void* /*context*/)
 {
     ThreadPool::start(1);
 
-    Viewer::init_default_resources();
-
-    // Initialize scene
-    {
-        auto& scene = state.scene;
-        scene.tex_mesh_geom.mesh = &scene.mesh_geom;
-        scene.tex_meshes[0].materials = {&scene.texture_db_material};
-        scene.tex_meshes[1].materials = {&scene.texture_db_material};
-        scene.tex_meshes[1].flatten = true;
-    }
+    init_default_gfx_resources();
 
     // Center camera on unit sphere
     {
@@ -504,7 +492,7 @@ void open(void* /*context*/)
         cam.frame_target_now();
 
         // Set default orbit
-        cam.controls.orbit = {{pi<f32> * 0.45f}, {pi<f32> * 0.35f}};
+        cam.controls.orbit = {.polar{pi<f32> * 0.45f}, .azimuth{pi<f32> * 0.35f}};
     }
 
     // Load default mesh asset and solve
@@ -525,23 +513,45 @@ void update(void* /*context*/)
 
 void draw(void* /*context*/)
 {
-    // Update material params
-    {
-        auto& mat = state.scene.texture_db_material;
-        mat.tex_scale = state.params.tex_scale.value;
-    }
+    auto const& cam = state.camera;
+    Mat4<f32> const world_to_view = cam.make_world_to_view();
+    Mat4<f32> const view_to_clip = cam.make_view_to_clip(App::aspect());
 
-    // Submit draw calls
-    {
-        OrbitCamera const& cam = state.camera;
-        Viewer::DrawContext ctx = Viewer::make_draw_context(
-            cam.make_world_to_view(),
-            cam.make_view_to_clip<NdcType_OpenGl>(App::aspect()));
-            
-        ctx.draw<0>(state.scene.tex_meshes[state.params.flatten]);
-        draw_debug(ctx);
-        draw_ui();
-    }
+    auto const& params = state.params;
+
+    TextureDebugMaterial const mat{
+        .tex_scale = params.tex_scale.value,
+    };
+
+    auto const& mesh = state.mesh;
+
+    TexturedMeshGeometry const geom{
+        .index = mesh.gpu.index.buffer,
+        .vertex = mesh.gpu.vertex.buffer,
+        .tex_map = mesh.gpu.tex_map.buffer,
+        .index_count = mesh.gpu.index.count,
+        .vertex_count = mesh.gpu.vertex.count,
+    };
+
+    TexturedMesh const render_mesh{
+        .geometry = &geom,
+        .materials{
+            .texture_debug = &mat,
+        },
+        .transform = params.flatten ? mesh.tex_xform : mesh.xform,
+        .flatten = params.flatten,
+    };
+
+    state.renderer.render(SceneDesc{
+        .meshes = {&render_mesh, mesh_has_tex_coords() ? 1 : 0},
+        .camera{
+            .world_to_view = world_to_view,
+            .view_to_clip = view_to_clip,
+        },
+    });
+
+    draw_debug(world_to_view, view_to_clip);
+    draw_ui();
 }
 
 void handle_event(void* /*context*/, App::Event const& event)
@@ -580,7 +590,7 @@ void handle_event(void* /*context*/, App::Event const& event)
                 case SAPP_KEYCODE_R:
                 {
                     if (is_mouse_over(event))
-                        Viewer::reload_default_shaders();
+                        reload_default_shaders();
 
                     break;
                 };
