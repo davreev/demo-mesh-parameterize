@@ -6,6 +6,7 @@
 #include <dr/span.hpp>
 #include <dr/transform.hpp>
 
+#include <dr/app/draw_command.hpp>
 #include <dr/app/gfx_resource.hpp>
 
 namespace dr
@@ -24,20 +25,6 @@ struct Renderer
         // ...
     };
 
-    struct DrawCommand
-    {
-        GfxBindings bindings{};
-        GfxPipeline::Handle pipeline{};
-        void const* material{};
-        void const* geometry{};
-        Span<u8 const> material_uniform_data;
-        Span<u8 const> geometry_uniform_data;
-        i32 uniform_slice{};
-        i32 base_element{};
-        i32 num_elements{};
-        i32 num_instances{};
-    };
-
     /// Specialize for different scene types
     template <typename Scene>
     void render(Scene const& scene);
@@ -45,26 +32,14 @@ struct Renderer
     /// Specialize for different scene object types
     template <Pass pass, typename Source>
     static void emit_draw_cmds(
-        Source const& /*src*/,
-        DynamicArray<DrawCommand>& /*draw_cmds*/,
-        SlicedArray<u8>& /*uniform_data*/)
-    {
-        // No draw commands emitted by default
-    }
+        Source const& src,
+        DynamicArray<DrawCommand>& draw_cmds,
+        SlicedArray<u8>& uniform_data);
 
   private:
     DynamicArray<DrawCommand> draw_cmds_;
     SlicedArray<u8> uniform_data_;
-
-    /// Orders and submits cached draw commands
-    static void submit_draw_cmds(
-        Span<DrawCommand> const& draw_cmds,
-        SlicedArray<u8> const& uniform_data);
 };
-
-/*
-    Renderer specializations
-*/
 
 struct TextureDebugMaterial
 {
