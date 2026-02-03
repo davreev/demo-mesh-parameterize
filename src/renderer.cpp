@@ -10,8 +10,6 @@ namespace dr
 namespace
 {
 
-using Pass = Renderer::Pass;
-
 // NOTE(dr): The assigned shader stage doesn't appear to matter when using OpenGL backends
 static sg_shader_stage const shader_stage_any = SG_SHADERSTAGE_VERTEX;
 
@@ -202,28 +200,6 @@ struct Impl<TextureDebugMaterial>
     };
 };
 
-template <Pass pass>
-static void render_pass(
-    SceneDesc const& src,
-    DynamicArray<DrawCommand>& draw_cmds,
-    SlicedArray<u8>& uniform_data)
-{
-    draw_cmds.clear();
-    uniform_data.clear();
-
-    // Pass uniforms are assumed to be the first slice
-    PassParams p{};
-    as_mat<4, 4>(p.world_to_view) = src.camera.world_to_view;
-    as_mat<4, 4>(p.world_to_clip) = src.camera.view_to_clip * src.camera.world_to_view;
-    uniform_data.push_back(as_bytes(p));
-
-    for (auto const& obj : src.meshes)
-        Renderer::emit_draw_cmds<pass>(obj, draw_cmds, uniform_data);
-
-    order_draw_cmds(as_span(draw_cmds));
-    submit_draw_cmds(as_span(draw_cmds), uniform_data);
-}
-
 } // namespace
 
 void Renderer::init_default_resources()
@@ -251,12 +227,24 @@ Span<u8 const> TextureDebugMaterial::uniform_data() const
 template <>
 void Renderer::render(SceneDesc const& scene)
 {
-    render_pass<Pass::UnlitOpaque>(scene, draw_cmds_, uniform_data_);
-    // ...
+    draw_cmds_.clear();
+    uniform_data_.clear();
+
+    // Pass uniforms are assumed to be the first slice
+    PassParams p{};
+    as_mat<4, 4>(p.world_to_view) = scene.camera.world_to_view;
+    as_mat<4, 4>(p.world_to_clip) = scene.camera.view_to_clip * scene.camera.world_to_view;
+    uniform_data_.push_back(as_bytes(p));
+
+    for (auto const& obj : scene.meshes)
+        emit_draw_cmds<TextureDebugMaterial>(obj, draw_cmds_, uniform_data_);
+
+    order_draw_cmds(as_span(draw_cmds_));
+    submit_draw_cmds(as_span(draw_cmds_), uniform_data_);
 }
 
 template <>
-void Renderer::emit_draw_cmds<Pass::UnlitOpaque>(
+void emit_draw_cmds<TextureDebugMaterial>(
     TexturedMesh const& src,
     DynamicArray<DrawCommand>& draw_cmds,
     SlicedArray<u8>& uniform_data)

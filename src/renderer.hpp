@@ -12,18 +12,9 @@
 namespace dr
 {
 
-using GfxBindings = sg_bindings;
-
 /// Simple forward renderer
 struct Renderer
 {
-    enum struct Pass : u8
-    {
-        Undefined = 0,
-        UnlitOpaque,
-        // ...
-    };
-
     static void init_default_resources();
     static void reload_default_shaders();
 
@@ -31,17 +22,17 @@ struct Renderer
     template <typename Scene>
     void render(Scene const& scene);
 
-    /// Specialize for different scene object types
-    template <Pass pass, typename Source>
-    static void emit_draw_cmds(
-        Source const& src,
-        DynamicArray<DrawCommand>& draw_cmds,
-        SlicedArray<u8>& uniform_data);
-
   private:
     DynamicArray<DrawCommand> draw_cmds_;
     SlicedArray<u8> uniform_data_;
 };
+
+/// Specialize for different source/material combinations
+template <typename Material, typename Source>
+void emit_draw_cmds(
+    Source const& src,
+    DynamicArray<DrawCommand>& draw_cmds,
+    SlicedArray<u8>& uniform_data);
 
 struct TextureDebugMaterial
 {
@@ -97,7 +88,7 @@ template <>
 void Renderer::render(SceneDesc const& scene);
 
 template <>
-void Renderer::emit_draw_cmds<Renderer::Pass::UnlitOpaque>(
+void emit_draw_cmds<TextureDebugMaterial>(
     TexturedMesh const& src,
     DynamicArray<DrawCommand>& draw_cmds,
     SlicedArray<u8>& uniform_data);
