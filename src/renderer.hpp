@@ -21,9 +21,11 @@ struct Renderer
     {
         Undefined = 0,
         UnlitOpaque,
-        UnlitTransparent,
         // ...
     };
+
+    static void init_default_resources();
+    static void reload_default_shaders();
 
     /// Specialize for different scene types
     template <typename Scene>
@@ -87,6 +89,10 @@ struct SceneDesc
     } camera;
 };
 
+/*
+    Specializations
+*/
+
 template <>
 void Renderer::render(SceneDesc const& scene);
 
@@ -95,9 +101,5 @@ void Renderer::emit_draw_cmds<Renderer::Pass::UnlitOpaque>(
     TexturedMesh const& src,
     DynamicArray<DrawCommand>& draw_cmds,
     SlicedArray<u8>& uniform_data);
-
-void init_default_gfx_resources();
-
-void reload_default_shaders();
 
 } // namespace dr
