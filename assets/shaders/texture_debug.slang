@@ -1,24 +1,28 @@
 import "modules/common.slang";
 
-struct Pass
+struct PassParams
 {
     float4x4 world_to_view;
     float4x4 world_to_clip;
 }
-ConstantBuffer<Pass> pass;
 
-struct Material
+struct MaterialParams
 {
     float tex_scale;
 }
-ConstantBuffer<Material> material;
 
-struct Object
+struct ObjectParams
 {
     float4x4 local_to_world;
     int flatten;
 }
-ConstantBuffer<Object> object;
+
+ConstantBuffer<PassParams> pass;
+ConstantBuffer<MaterialParams> material;
+ConstantBuffer<ObjectParams> object;
+
+static float4x4 local_to_view = mul(pass.world_to_view, object.local_to_world);
+static float4x4 local_to_clip = mul(pass.world_to_clip, object.local_to_world);
 
 Sampler2D matcap;
 
@@ -32,9 +36,6 @@ struct Vertex
 [shader("vertex")]
 float4 vertex_main(Vertex v, out float3 view_normal, out float2 tex_coord) : SV_Position
 {
-    let local_to_view = mul(pass.world_to_view, object.local_to_world);
-    let local_to_clip = mul(pass.world_to_clip, object.local_to_world);
-
     const float3 pos = select(bool(object.flatten), float3(v.tex_coord, 0.0), v.position);
 
     // NOTE(dr): This assumes local_to_view has uniform scaling
