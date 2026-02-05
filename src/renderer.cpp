@@ -17,17 +17,26 @@ struct PassParams
 {
     f32 world_to_view[16];
     f32 world_to_clip[16];
-};
 
-struct MaterialParams
-{
-    f32 tex_scale;
-};
-
-struct ObjectParams
-{
-    f32 local_to_world[16];
-    i32 flatten;
+    static sg_shader_uniform_block uniform_block()
+    {
+        return {
+            .stage = shader_stage_any,
+            .size = sizeof(PassParams),
+            .glsl_uniforms{
+                {
+                    .type = SG_UNIFORMTYPE_FLOAT4,
+                    .array_count = 4,
+                    .glsl_name = "pass.world_to_view.data",
+                },
+                {
+                    .type = SG_UNIFORMTYPE_FLOAT4,
+                    .array_count = 4,
+                    .glsl_name = "pass.world_to_clip.data",
+                },
+            },
+        };
+    }
 };
 
 template <typename T>
@@ -44,60 +53,60 @@ struct Impl<TextureDebugMaterial>
         GfxSampler sampler;
     } inline static default_matcap;
 
+    struct MaterialParams
+    {
+        f32 tex_scale;
+
+        static sg_shader_uniform_block uniform_block()
+        {
+            return {
+                .stage = shader_stage_any,
+                .size = sizeof(MaterialParams),
+                .glsl_uniforms{
+                    {
+                        .type = SG_UNIFORMTYPE_FLOAT,
+                        .glsl_name = "material.tex_scale",
+                    },
+                },
+            };
+        }
+    };
+
+    struct ObjectParams
+    {
+        f32 local_to_world[16];
+        i32 flatten;
+
+        static sg_shader_uniform_block uniform_block()
+        {
+            return {
+                .stage = shader_stage_any,
+                .size = sizeof(ObjectParams),
+                .glsl_uniforms{
+                    {
+                        .type = SG_UNIFORMTYPE_FLOAT4,
+                        .array_count = 4,
+                        .glsl_name = "object.local_to_world.data",
+                    },
+                    {
+                        .type = SG_UNIFORMTYPE_INT,
+                        .glsl_name = "object.flatten",
+                    },
+                },
+            };
+        }
+    };
+
     static GfxShader::Desc shader_desc(char const* const vs_src, char const* const fs_src)
     {
         return {
             .vertex_func{.source = vs_src},
             .fragment_func{.source = fs_src},
             .uniform_blocks{
-                {
-                    // Pass block
-                    .stage = shader_stage_any,
-                    .size = sizeof(f32[16 * 2]),
-                    .glsl_uniforms{
-                        {
-                            .type = SG_UNIFORMTYPE_FLOAT4,
-                            .array_count = 4,
-                            .glsl_name = "pass.world_to_view.data",
-                        },
-                        {
-                            .type = SG_UNIFORMTYPE_FLOAT4,
-                            .array_count = 4,
-                            .glsl_name = "pass.world_to_clip.data",
-                        },
-                    },
-                },
-                {
-                    // Material block
-                    .stage = shader_stage_any,
-                    .size = sizeof(f32),
-                    .glsl_uniforms{
-                        {
-                            .type = SG_UNIFORMTYPE_FLOAT,
-                            .glsl_name = "material.tex_scale",
-                        },
-                    },
-                },
-                {
-                    // Geometry block
-                    // ...
-                },
-                {
-                    // Object block
-                    .stage = shader_stage_any,
-                    .size = sizeof(f32[16 + 1]),
-                    .glsl_uniforms{
-                        {
-                            .type = SG_UNIFORMTYPE_FLOAT4,
-                            .array_count = 4,
-                            .glsl_name = "object.local_to_world.data",
-                        },
-                        {
-                            .type = SG_UNIFORMTYPE_INT,
-                            .glsl_name = "object.flatten",
-                        },
-                    },
-                },
+                PassParams::uniform_block(),
+                MaterialParams::uniform_block(),
+                {}, // Geometry block (unused)
+                ObjectParams::uniform_block(),
             },
             .images{
                 {.stage = shader_stage_any},
@@ -221,7 +230,11 @@ GfxPipeline::Handle TextureDebugMaterial::pipeline() const
 
 Span<u8 const> TextureDebugMaterial::uniform_data() const
 {
-    return {as<u8>(&tex_scale), sizeof(f32[1])};
+    auto& first = tex_scale;
+    auto& last = tex_scale;
+    
+    auto begin = as<u8>(&first);
+    return {begin, (as<u8>(&last) + sizeof(last)) - begin};
 }
 
 template <>
@@ -231,10 +244,10 @@ void Renderer::render(SceneDesc const& scene)
     uniform_data_.clear();
 
     // Pass uniforms are assumed to be the first slice
-    PassParams p{};
-    as_mat<4, 4>(p.world_to_view) = scene.camera.world_to_view;
-    as_mat<4, 4>(p.world_to_clip) = scene.camera.view_to_clip * scene.camera.world_to_view;
-    uniform_data_.push_back(as_bytes(p));
+    PassParams params{};
+    as_mat<4, 4>(params.world_to_view) = scene.camera.world_to_view;
+    as_mat<4, 4>(params.world_to_clip) = scene.camera.view_to_clip * scene.camera.world_to_view;
+    uniform_data_.push_back(as_bytes(params));
 
     for (auto const& obj : scene.meshes)
         emit_draw_cmds<TextureDebugMaterial>(obj, draw_cmds_, uniform_data_);
@@ -288,10 +301,10 @@ void emit_draw_cmds<TextureDebugMaterial>(
     });
 
     // Append uniform data
-    ObjectParams p{};
-    as_mat<4, 4>(p.local_to_world) = src.transform.to_matrix();
-    p.flatten = src.flatten;
-    uniform_data.push_back(as_bytes(p));
+    Impl<Material>::ObjectParams params{};
+    as_mat<4, 4>(params.local_to_world) = src.transform.to_matrix();
+    params.flatten = src.flatten;
+    uniform_data.push_back(as_bytes(params));
 }
 
 } // namespace dr
