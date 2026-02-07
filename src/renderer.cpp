@@ -15,8 +15,16 @@ static sg_shader_stage const shader_stage_any = SG_SHADERSTAGE_VERTEX;
 
 struct PassParams
 {
-    f32 world_to_view[16];
-    f32 world_to_clip[16];
+    f32 world_to_view[16]{};
+    f32 world_to_clip[16]{};
+
+    static PassParams make(Mat4<f32> const& world_to_view, Mat4<f32> const& view_to_clip)
+    {
+        PassParams p;
+        as_mat<4, 4>(p.world_to_view) = world_to_view;
+        as_mat<4, 4>(p.world_to_clip) = view_to_clip * world_to_view;
+        return p;
+    }
 
     static sg_shader_uniform_block uniform_block()
     {
@@ -40,6 +48,71 @@ struct PassParams
 };
 
 template <typename T>
+struct Params;
+
+template <>
+struct Params<TexturedMesh>
+{
+    f32 local_to_world[16]{};
+    i32 flatten{};
+
+    static Params make(TexturedMesh const& src)
+    {
+        Params p{
+            .flatten = src.flatten,
+        };
+        as_mat<4, 4>(p.local_to_world) = src.transform.to_matrix();
+        return p;
+    }
+
+    static sg_shader_uniform_block uniform_block()
+    {
+        return {
+            .stage = shader_stage_any,
+            .size = sizeof(Params),
+            .glsl_uniforms{
+                {
+                    .type = SG_UNIFORMTYPE_FLOAT4,
+                    .array_count = 4,
+                    .glsl_name = "object.local_to_world.data",
+                },
+                {
+                    .type = SG_UNIFORMTYPE_INT,
+                    .glsl_name = "object.flatten",
+                },
+            },
+        };
+    }
+};
+
+template <>
+struct Params<TextureDebugMaterial>
+{
+    f32 tex_scale{};
+
+    static Params make(TextureDebugMaterial const& src)
+    {
+        return {
+            .tex_scale = src.tex_scale,
+        };
+    }
+
+    static sg_shader_uniform_block uniform_block()
+    {
+        return {
+            .stage = shader_stage_any,
+            .size = sizeof(Params),
+            .glsl_uniforms{
+                {
+                    .type = SG_UNIFORMTYPE_FLOAT,
+                    .glsl_name = "material.tex_scale",
+                },
+            },
+        };
+    }
+};
+
+template <typename T>
 struct Impl;
 
 template <>
@@ -53,50 +126,6 @@ struct Impl<TextureDebugMaterial>
         GfxSampler sampler;
     } inline static default_matcap;
 
-    struct MaterialParams
-    {
-        f32 tex_scale;
-
-        static sg_shader_uniform_block uniform_block()
-        {
-            return {
-                .stage = shader_stage_any,
-                .size = sizeof(MaterialParams),
-                .glsl_uniforms{
-                    {
-                        .type = SG_UNIFORMTYPE_FLOAT,
-                        .glsl_name = "material.tex_scale",
-                    },
-                },
-            };
-        }
-    };
-
-    struct ObjectParams
-    {
-        f32 local_to_world[16];
-        i32 flatten;
-
-        static sg_shader_uniform_block uniform_block()
-        {
-            return {
-                .stage = shader_stage_any,
-                .size = sizeof(ObjectParams),
-                .glsl_uniforms{
-                    {
-                        .type = SG_UNIFORMTYPE_FLOAT4,
-                        .array_count = 4,
-                        .glsl_name = "object.local_to_world.data",
-                    },
-                    {
-                        .type = SG_UNIFORMTYPE_INT,
-                        .glsl_name = "object.flatten",
-                    },
-                },
-            };
-        }
-    };
-
     static GfxShader::Desc shader_desc(char const* const vs_src, char const* const fs_src)
     {
         return {
@@ -104,9 +133,9 @@ struct Impl<TextureDebugMaterial>
             .fragment_func{.source = fs_src},
             .uniform_blocks{
                 PassParams::uniform_block(),
-                MaterialParams::uniform_block(),
+                Params<TextureDebugMaterial>::uniform_block(),
                 {}, // Geometry block (unused)
-                ObjectParams::uniform_block(),
+                Params<TexturedMesh>::uniform_block(),
             },
             .images{
                 {.stage = shader_stage_any},
@@ -228,25 +257,16 @@ GfxPipeline::Handle TextureDebugMaterial::pipeline() const
     return Impl<TextureDebugMaterial>::default_pipeline;
 }
 
-Span<u8 const> TextureDebugMaterial::uniform_data() const
-{
-    auto& first = tex_scale;
-    auto& last = tex_scale;
-    
-    auto begin = as<u8>(&first);
-    return {begin, (as<u8>(&last) + sizeof(last)) - begin};
-}
-
 template <>
 void Renderer::render(SceneDesc const& scene)
 {
+    auto const& [world_to_view, view_to_clip] = scene.camera;
+
     draw_cmds_.clear();
     uniform_data_.clear();
 
     // Pass uniforms are assumed to be the first slice
-    PassParams params{};
-    as_mat<4, 4>(params.world_to_view) = scene.camera.world_to_view;
-    as_mat<4, 4>(params.world_to_clip) = scene.camera.view_to_clip * scene.camera.world_to_view;
+    auto const params = PassParams::make(world_to_view, view_to_clip);
     uniform_data_.push_back(as_bytes(params));
 
     for (auto const& obj : scene.meshes)
@@ -294,17 +314,20 @@ void emit_draw_cmds<TextureDebugMaterial>(
         .material = mat,
         .geometry = src.geometry,
         .set_bindings = set_bindings,
-        .material_uniform_data = mat->uniform_data(),
-        .uniform_slice = uniform_data.num_slices(),
+        .uniform_slices{
+            .material = uniform_data.num_slices(),
+            .object = uniform_data.num_slices() + 1,
+        },
         .num_elements = int(src.geometry->index_count),
         .num_instances = 1,
     });
 
     // Append uniform data
-    Impl<Material>::ObjectParams params{};
-    as_mat<4, 4>(params.local_to_world) = src.transform.to_matrix();
-    params.flatten = src.flatten;
-    uniform_data.push_back(as_bytes(params));
+    auto const mat_params = Params<TextureDebugMaterial>::make(*mat);
+    uniform_data.push_back(as_bytes(mat_params));
+
+    auto const obj_params = Params<TexturedMesh>::make(src);
+    uniform_data.push_back(as_bytes(obj_params));
 }
 
 } // namespace dr

@@ -44,7 +44,6 @@ struct TextureDebugMaterial
     f32 tex_scale;
 
     GfxPipeline::Handle pipeline() const;
-    Span<u8 const> uniform_data() const;
 };
 
 struct TexturedMeshGeometry
