@@ -39,10 +39,10 @@ float4 vertex_main(Vertex v, out float3 view_normal, out float2 tex_coord) : SV_
     const float3 pos = select(bool(object.flatten), float3(v.tex_coord, 0.0), v.position);
 
     // NOTE(dr): This assumes local_to_view has uniform scaling
-    view_normal = normalize(mul(float3x3(local_to_view), v.normal));
+    view_normal = normalize(mul(local_to_view, float4(v.normal, 0.0)).xyz);
     tex_coord = v.tex_coord;
 
-    return mul(local_to_clip, { pos, 1.0 });
+    return mul(local_to_clip, float4(pos, 1.0));
 }
 
 float3 proc_tex(float2 p)
