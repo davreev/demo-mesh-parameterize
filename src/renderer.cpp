@@ -48,72 +48,45 @@ struct PassParams
 };
 
 template <typename T>
-struct Params;
-
-template <>
-struct Params<TexturedMesh>
-{
-    f32 local_to_world[16]{};
-    i32 flatten{};
-
-    static Params make(TexturedMesh const& src)
-    {
-        Params p{
-            .flatten = src.flatten,
-        };
-        as_mat<4, 4>(p.local_to_world) = src.transform.to_matrix();
-        return p;
-    }
-
-    static sg_shader_uniform_block uniform_block()
-    {
-        return {
-            .stage = shader_stage_any,
-            .size = sizeof(Params),
-            .glsl_uniforms{
-                {
-                    .type = SG_UNIFORMTYPE_FLOAT4,
-                    .array_count = 4,
-                    .glsl_name = "object.local_to_world.data",
-                },
-                {
-                    .type = SG_UNIFORMTYPE_INT,
-                    .glsl_name = "object.flatten",
-                },
-            },
-        };
-    }
-};
-
-template <>
-struct Params<TextureDebugMaterial>
-{
-    f32 tex_scale{};
-
-    static Params make(TextureDebugMaterial const& src)
-    {
-        return {
-            .tex_scale = src.tex_scale,
-        };
-    }
-
-    static sg_shader_uniform_block uniform_block()
-    {
-        return {
-            .stage = shader_stage_any,
-            .size = sizeof(Params),
-            .glsl_uniforms{
-                {
-                    .type = SG_UNIFORMTYPE_FLOAT,
-                    .glsl_name = "material.tex_scale",
-                },
-            },
-        };
-    }
-};
-
-template <typename T>
 struct Impl;
+
+template <>
+struct Impl<TexturedMesh>
+{
+    struct Params
+    {
+        f32 local_to_world[16]{};
+        i32 flatten{};
+
+        static Params make(TexturedMesh const& src)
+        {
+            Params p{
+                .flatten = src.flatten,
+            };
+            as_mat<4, 4>(p.local_to_world) = src.transform.to_matrix();
+            return p;
+        }
+
+        static sg_shader_uniform_block uniform_block()
+        {
+            return {
+                .stage = shader_stage_any,
+                .size = sizeof(Params),
+                .glsl_uniforms{
+                    {
+                        .type = SG_UNIFORMTYPE_FLOAT4,
+                        .array_count = 4,
+                        .glsl_name = "object.local_to_world.data",
+                    },
+                    {
+                        .type = SG_UNIFORMTYPE_INT,
+                        .glsl_name = "object.flatten",
+                    },
+                },
+            };
+        }
+    };
+};
 
 template <>
 struct Impl<TextureDebugMaterial>
@@ -126,6 +99,32 @@ struct Impl<TextureDebugMaterial>
         GfxSampler sampler;
     } inline static default_matcap;
 
+    struct Params
+    {
+        f32 tex_scale{};
+
+        static Params make(TextureDebugMaterial const& src)
+        {
+            return {
+                .tex_scale = src.tex_scale,
+            };
+        }
+
+        static sg_shader_uniform_block uniform_block()
+        {
+            return {
+                .stage = shader_stage_any,
+                .size = sizeof(Params),
+                .glsl_uniforms{
+                    {
+                        .type = SG_UNIFORMTYPE_FLOAT,
+                        .glsl_name = "material.tex_scale",
+                    },
+                },
+            };
+        }
+    };
+
     static GfxShader::Desc shader_desc(char const* const vs_src, char const* const fs_src)
     {
         return {
@@ -133,9 +132,9 @@ struct Impl<TextureDebugMaterial>
             .fragment_func{.source = fs_src},
             .uniform_blocks{
                 PassParams::uniform_block(),
-                Params<TextureDebugMaterial>::uniform_block(),
+                Params::uniform_block(),
                 {}, // Geometry block (unused)
-                Params<TexturedMesh>::uniform_block(),
+                Impl<TexturedMesh>::Params::uniform_block(),
             },
             .images{
                 {.stage = shader_stage_any},
@@ -323,10 +322,10 @@ void emit_draw_cmds<TextureDebugMaterial>(
     });
 
     // Append uniform data
-    auto const mat_params = Params<TextureDebugMaterial>::make(*mat);
+    auto const mat_params = Impl<Material>::Params::make(*mat);
     uniform_data.push_back(as_bytes(mat_params));
 
-    auto const obj_params = Params<TexturedMesh>::make(src);
+    auto const obj_params = Impl<TexturedMesh>::Params::make(src);
     uniform_data.push_back(as_bytes(obj_params));
 }
 
