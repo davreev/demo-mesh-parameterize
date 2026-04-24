@@ -7,6 +7,7 @@
 #include <dr/transform.hpp>
 
 #include <dr/app/debug_draw.hpp>
+#include <dr/app/draw_context.hpp>
 #include <dr/app/event_handlers.hpp>
 #include <dr/app/gfx_utils.hpp>
 #include <dr/app/orbit_camera.hpp>
@@ -38,7 +39,7 @@ struct
 
 struct
 {
-    Renderer renderer;
+    DrawContext draw_ctx;
     OrbitCamera camera;
 
     struct
@@ -478,7 +479,7 @@ void draw_debug(Mat4<f32> const& world_to_view, Mat4<f32> const& view_to_clip)
     sgl_draw();
 }
 
-void open(void* /*context*/)
+void open()
 {
     ThreadPool::start(1);
     Renderer::init_default_resources();
@@ -498,19 +499,19 @@ void open(void* /*context*/)
     on_mesh_asset_change();
 }
 
-void close(void* /*context*/)
+void close()
 {
     release_all_assets();
     ThreadPool::stop();
 }
 
-void update(void* /*context*/)
+void update()
 {
     state.camera.update(App::delta_time_s());
     state.task_queue.poll();
 }
 
-void draw(void* /*context*/)
+void draw()
 {
     auto const& cam = state.camera;
     Mat4<f32> const world_to_view = cam.make_world_to_view();
@@ -519,7 +520,7 @@ void draw(void* /*context*/)
     auto const& params = state.params;
 
     TextureDebugMaterial const mat{
-        .tex_scale = params.tex_scale.value,
+        .tex_scale = params.tex_scale,
     };
 
     auto const& mesh = state.mesh;
@@ -541,19 +542,21 @@ void draw(void* /*context*/)
         .flatten = params.flatten,
     };
 
-    state.renderer.render(SceneDesc{
-        .meshes = {&render_mesh, mesh_has_tex_coords() ? 1 : 0},
-        .camera{
-            .world_to_view = world_to_view,
-            .view_to_clip = view_to_clip,
+    Renderer::render(
+        SceneView{
+            .meshes = {&render_mesh, mesh_has_tex_coords() ? 1 : 0},
+            .camera{
+                .world_to_view = world_to_view,
+                .view_to_clip = view_to_clip,
+            },
         },
-    });
+        state.draw_ctx);
 
     draw_debug(world_to_view, view_to_clip);
     draw_ui();
 }
 
-void handle_event(void* /*context*/, App::Event const& event)
+void handle_event(App::Event const& event)
 {
     camera_handle_mouse_event(event, state.camera);
     camera_handle_touch_event(event, state.camera);
@@ -609,6 +612,16 @@ void handle_event(void* /*context*/, App::Event const& event)
 
 } // namespace
 
-App::Scene scene() { return {scene_info.name, open, close, update, draw, handle_event, nullptr}; }
+App::Scene scene()
+{
+    return {
+        .name = scene_info.name,
+        .open = open,
+        .close = close,
+        .update = update,
+        .draw = draw,
+        .handle_event = handle_event,
+    };
+}
 
 } // namespace dr
