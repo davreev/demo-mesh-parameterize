@@ -18,7 +18,6 @@
 #include "assets.hpp"
 #include "renderer.hpp"
 #include "tasks.hpp"
-#include "utils.hpp"
 
 namespace dr
 {
@@ -50,12 +49,8 @@ struct
         Vec2<i32> ref_verts;
         Conformal3<f32> xform;
         Conformal3<f32> tex_xform;
-        struct
-        {
-            Buffer<sizeof(i32)> index;
-            Buffer<sizeof(f32[6])> vertex;
-            Buffer<sizeof(f32[2])> tex_map;
-        } gpu;
+        GeometryStream stream[2];
+        bool tex_coords_dirty;
     } mesh;
 
     TaskQueue task_queue;
@@ -68,7 +63,7 @@ struct
 
     struct
     {
-        Param<f32> tex_scale{0.01f, 0.001f, 0.1f};
+        f32 tex_scale{0.01f};
         AssetHandle::Mesh mesh_handle;
         SolveTexCoords::Method solve_method{SolveTexCoords::Method_LeastSquaresConformal};
         bool flatten{};
@@ -83,11 +78,12 @@ void mesh_set_asset(MeshAsset const* asset)
     mesh.asset = asset;
 
     // Update GPU buffers
-    set_mesh_indices(mesh.gpu.index, as_span(asset->faces.vertex_ids));
-    set_mesh_vertices(
-        mesh.gpu.vertex,
-        as_span(asset->vertices.positions),
-        as_span(asset->vertices.normals));
+    mesh.stream[0].push_vertices(as<u8>(as_span(asset->vertices.positions)));
+    mesh.stream[0].push_vertices(as<u8>(as_span(asset->vertices.normals)));
+    mesh.stream[0].push_indices(as<u8>(as_span(asset->faces.vertex_ids)));
+    mesh.stream[0].update_device_buffers();
+    mesh.stream[0].clear();
+    mesh.tex_coords_dirty = true;
 
     // Fit to unit sphere in world space
     auto const& [cen, rad] = asset->bounds;
@@ -132,7 +128,10 @@ void mesh_set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
     mesh.tex_coords.assign(begin(tex_coords), end(tex_coords));
 
     // Update GPU buffer
-    set_mesh_vertices(mesh.gpu.tex_map, tex_coords);
+    mesh.stream[1].push_vertices(as<u8>(tex_coords));
+    mesh.stream[1].update_device_buffers();
+    mesh.stream[1].clear();
+    mesh.tex_coords_dirty = false;
 
     // Places flattened mesh on yz plane
     static Quat<f32> const rot{
@@ -144,18 +143,15 @@ void mesh_set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
         mesh.tex_xform.scale = mesh.xform.scale;
 }
 
-bool mesh_has_tex_coords() { return state.mesh.gpu.tex_map.count > 0; }
-
 void mesh_clear()
 {
     auto& mesh = state.mesh;
     mesh.asset = nullptr;
     mesh.tex_coords.clear();
     mesh.boundary_edge_verts.clear();
-    mesh.gpu.index.count = 0;
-    mesh.gpu.vertex.count = 0;
-    mesh.gpu.tex_map.count = 0;
 }
+
+bool mesh_can_draw() { return state.mesh.asset && !state.mesh.tex_coords_dirty; }
 
 void schedule_task(LoadMeshAsset& task)
 {
@@ -252,11 +248,13 @@ void draw_settings_tab()
 {
     if (ImGui::BeginTabItem("Settings"))
     {
+        auto& params = state.params;
+
         ImGui::SeparatorText("Model");
         {
             ImGui::BeginDisabled(state.task_queue.size() > 0);
 
-            AssetHandle::Mesh const curr_handle = state.params.mesh_handle;
+            AssetHandle::Mesh const curr_handle = params.mesh_handle;
             if (ImGui::BeginCombo("Shape", get_asset_meta(curr_handle).name))
             {
                 for (u8 i = 0; i < AssetHandle::_Mesh_Count; ++i)
@@ -268,7 +266,7 @@ void draw_settings_tab()
                     {
                         if (!is_curr)
                         {
-                            state.params.mesh_handle = AssetHandle::Mesh{i};
+                            params.mesh_handle = AssetHandle::Mesh{i};
                             on_mesh_asset_change();
                         }
                     }
@@ -286,7 +284,7 @@ void draw_settings_tab()
                 "Spectral conformal",
             };
 
-            SolveTexCoords::Method const method = state.params.solve_method;
+            SolveTexCoords::Method const method = params.solve_method;
             if (ImGui::BeginCombo("Method", method_names[method]))
             {
                 for (u8 i = 0; i < SolveTexCoords::_Method_Count; ++i)
@@ -296,7 +294,7 @@ void draw_settings_tab()
                     {
                         if (!is_selected)
                         {
-                            state.params.solve_method = SolveTexCoords::Method{i};
+                            params.solve_method = SolveTexCoords::Method{i};
                             schedule_task(state.tasks.solve_tex_coords);
                         }
                     }
@@ -314,12 +312,8 @@ void draw_settings_tab()
 
         ImGui::SeparatorText("Display");
         {
-            {
-                Param<f32>& p = state.params.tex_scale;
-                ImGui::SliderFloat("Texture scale", &p.value, p.min, p.max, "%.3f");
-            }
-
-            ImGui::Checkbox("Flatten", &state.params.flatten);
+            ImGui::SliderFloat("Texture scale", &params.tex_scale, 0.001f, 0.1f, "%.3f");
+            ImGui::Checkbox("Flatten", &params.flatten);
         }
         ImGui::Spacing();
 
@@ -473,7 +467,7 @@ void draw_debug(Mat4<f32> const& world_to_view, Mat4<f32> const& view_to_clip)
 
     debug_draw_axes(world_to_view, 0.1f);
 
-    if (mesh_has_tex_coords())
+    if (mesh_can_draw())
         debug_draw_mesh_boundary(world_to_view);
 
     sgl_draw();
@@ -517,40 +511,43 @@ void draw()
     Mat4<f32> const world_to_view = cam.make_world_to_view();
     Mat4<f32> const view_to_clip = cam.make_view_to_clip(App::aspect());
 
-    auto const& params = state.params;
+    if (mesh_can_draw())
+    {
+        auto const& params = state.params;
 
-    TextureDebugMaterial const mat{
-        .tex_scale = params.tex_scale,
-    };
+        TextureDebugMaterial const mat{
+            .tex_scale = params.tex_scale,
+        };
 
-    auto const& mesh = state.mesh;
+        auto const& mesh = state.mesh;
 
-    TexturedMeshGeometry const geom{
-        .index = mesh.gpu.index.buffer,
-        .vertex = mesh.gpu.vertex.buffer,
-        .tex_map = mesh.gpu.tex_map.buffer,
-        .index_count = mesh.gpu.index.count,
-        .vertex_count = mesh.gpu.vertex.count,
-    };
+        TexturedMeshGeometry const geom{
+            .index = mesh.stream[0].index_buffer(),
+            .vertex = mesh.stream[0].vertex_buffer(),
+            .tex_map = mesh.stream[1].vertex_buffer(),
+            .index_count = 3 * mesh.asset->faces.count(),
+            .vertex_count = mesh.asset->vertices.count(),
+        };
 
-    TexturedMesh const render_mesh{
-        .geometry = &geom,
-        .materials{
-            .texture_debug = &mat,
-        },
-        .transform = params.flatten ? mesh.tex_xform : mesh.xform,
-        .flatten = params.flatten,
-    };
-
-    Renderer::render(
-        SceneView{
-            .meshes = {&render_mesh, mesh_has_tex_coords() ? 1 : 0},
-            .camera{
-                .world_to_view = world_to_view,
-                .view_to_clip = view_to_clip,
+        TexturedMesh const render_mesh{
+            .geometry = &geom,
+            .materials{
+                .texture_debug = &mat,
             },
-        },
-        state.draw_ctx);
+            .transform = params.flatten ? mesh.tex_xform : mesh.xform,
+            .flatten = params.flatten,
+        };
+
+        Renderer::render(
+            SceneView{
+                .meshes = {&render_mesh, 1},
+                .camera{
+                    .world_to_view = world_to_view,
+                    .view_to_clip = view_to_clip,
+                },
+            },
+            state.draw_ctx);
+    }
 
     draw_debug(world_to_view, view_to_clip);
     draw_ui();
