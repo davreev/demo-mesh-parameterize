@@ -91,7 +91,7 @@ struct SpectralConformalMap
             // since, for Lc and B, eigenvalues always seem to come in +/- pairs (why?) making the
             // 3rd the first non-zero eigenvalue.
 
-            if (eigs_.solve_shift_inv(Lc_, B_, 3))
+            if (eigs_.solve_sym_shift_inv(Lc_, B_, 3))
                 status_ = Status_Solved;
             else
                 return false;
@@ -118,7 +118,7 @@ struct SpectralConformalMap
     SparseMat<Real, Index> Lc_{};
     SparseMat<Real, Index> A_{};
     SparseMat<Real, Index> B_{};
-    SparseSymEigendecomp<Real> eigs_{};
+    SparseEigendecomp<Real> eigs_{};
     DynamicArray<Triplet<Real, Index>> coeffs_{};
     Status status_{};
 };
