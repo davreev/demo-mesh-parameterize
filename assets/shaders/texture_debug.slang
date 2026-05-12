@@ -45,33 +45,32 @@ float4 vertex_main(Vertex v, out float3 view_normal, out float2 tex_coord) : SV_
     return mul(local_to_clip, float4(pos, 1.0));
 }
 
-float3 proc_tex(float2 p)
+float checker_aa(float2 p)
 {
-    static const float3 col_a = float3(1.0);
-    static const float3 col_b = float3(0.8);
-    return lerp(col_a, col_b, checker(p));
+    let x = abs(fract(p.x) - 0.5) - 0.25;
+    let sd_x = x / fwidth(p.x);
+
+    let y = abs(fract(p.y) - 0.5) - 0.25;
+    let sd_y = y / fwidth(p.y);
+
+    static const float w = 1.0;
+    let a = smoothstep(-w, w, sd_x);
+    let b = smoothstep(-w, w, sd_y);
+    return max(min(a, b), min(1.0 - a, 1.0 - b));
 }
 
-float3 proc_tex_aa(float2 p)
+float3 debug_tex(float2 p)
 {
-    // TODO(dr): Could approximate integral of proc_tex over pixel in screenspace?
-
-    // NOTE(dr): Filter procedural texture using screen space stencil centered at p
-    const float2 dp_x = 0.25 * ddx(p);
-    const float2 dp_y = 0.25 * ddy(p);
-    float3 col = proc_tex(p);
-    col += proc_tex(p - dp_x);
-    col += proc_tex(p + dp_x);
-    col += proc_tex(p - dp_y);
-    col += proc_tex(p + dp_y);
-    return col * 0.2;
+    static const float3 col_a = float3(0.8);
+    static const float3 col_b = float3(1.0);
+    return lerp(col_a, col_b, checker_aa(p));
 }
 
 [shader("fragment")]
 float4 fragment_main(float3 view_normal, float2 tex_coord, bool is_front_face: SV_IsFrontFace) :
     SV_Target
 {
-    float4 col = { proc_tex_aa(tex_coord / material.tex_scale), 1.0 };
+    float4 col = { debug_tex(tex_coord / material.tex_scale), 1.0 };
     apply_matcap_shading(matcap, normalize(view_normal), 1.2, 0.95, col);
 
     if (is_front_face)
