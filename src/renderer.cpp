@@ -158,14 +158,6 @@ struct Impl<TextureDebugMaterial>
             },
         });
         assert(default_shader.is_valid());
-    };
-
-    static void init_default_resources()
-    {
-        assert(!default_pipeline.is_valid());
-
-        default_shader = GfxShader::alloc();
-        init_default_shader();
 
         default_pipeline = GfxPipeline::make({
             .shader = default_shader,
@@ -184,6 +176,12 @@ struct Impl<TextureDebugMaterial>
             .face_winding = SG_FACEWINDING_CCW,
         });
         assert(default_pipeline.is_valid());
+    };
+
+    static void init_default_resources()
+    {
+        assert(!default_pipeline.is_valid());
+        init_default_shader();
 
         {
             ImageAsset const* image = get_asset(AssetHandle::Image_Matcap);
