@@ -264,7 +264,7 @@ void emit_draw_cmds<TextureDebugMaterial>(TexturedMesh const& src, DrawContext& 
     if (mat == nullptr)
         return;
 
-    auto set_bindings = [](DrawCommand const& cmd, GfxBindings& b) {
+    auto set_bindings = [](DrawCommand const& cmd, sg_bindings& b) {
         auto const geom = static_cast<Geometry const*>(cmd.geometry);
         b.vertex_buffers[0] = geom->vertex;
         b.vertex_buffers[1] = geom->vertex;
