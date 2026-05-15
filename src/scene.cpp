@@ -49,7 +49,11 @@ struct
         Vec2<i32> ref_verts;
         Conformal3<f32> xform;
         Conformal3<f32> tex_xform;
-        GeometryStream stream[2];
+        struct
+        {
+            VertexStream vertex[2];
+            IndexStream<i32> index;
+        } streams;
         bool tex_coords_dirty;
     } mesh;
 
@@ -78,11 +82,13 @@ void mesh_set_asset(MeshAsset const* asset)
     mesh.asset = asset;
 
     // Update GPU buffers
-    mesh.stream[0].push_vertices(as<u8>(as_span(asset->vertices.positions)));
-    mesh.stream[0].push_vertices(as<u8>(as_span(asset->vertices.normals)));
-    mesh.stream[0].push_indices(as<u8>(as_span(asset->faces.vertex_ids)));
-    mesh.stream[0].update_device_buffers();
-    mesh.stream[0].clear();
+    mesh.streams.vertex[0].push(as<u8>(as_span(asset->vertices.positions)));
+    mesh.streams.vertex[0].push(as<u8>(as_span(asset->vertices.normals)));
+    mesh.streams.vertex[0].update_device_buffer();
+    mesh.streams.vertex[0].clear();
+    mesh.streams.index.push(as<i32>(as_span(asset->faces.vertex_ids)));
+    mesh.streams.index.update_device_buffer();
+    mesh.streams.index.clear();
     mesh.tex_coords_dirty = true;
 
     // Fit to unit sphere in world space
@@ -128,9 +134,9 @@ void mesh_set_tex_coords(Span<Vec2<f32> const> const& tex_coords)
     mesh.tex_coords.assign(begin(tex_coords), end(tex_coords));
 
     // Update GPU buffer
-    mesh.stream[1].push_vertices(as<u8>(tex_coords));
-    mesh.stream[1].update_device_buffers();
-    mesh.stream[1].clear();
+    mesh.streams.vertex[1].push(as<u8>(tex_coords));
+    mesh.streams.vertex[1].update_device_buffer();
+    mesh.streams.vertex[1].clear();
     mesh.tex_coords_dirty = false;
 
     // Places flattened mesh on yz plane
@@ -522,11 +528,11 @@ void draw()
         auto const& mesh = state.mesh;
 
         TexturedMeshGeometry const geom{
-            .index = mesh.stream[0].index_buffer(),
-            .vertex = mesh.stream[0].vertex_buffer(),
-            .tex_map = mesh.stream[1].vertex_buffer(),
-            .index_count = 3 * mesh.asset->faces.count(),
+            .vertex = mesh.streams.vertex[0].device_buffer(),
+            .tex_map = mesh.streams.vertex[1].device_buffer(),
+            .index = mesh.streams.index.device_buffer(),
             .vertex_count = mesh.asset->vertices.count(),
+            .index_count = 3 * mesh.asset->faces.count(),
         };
 
         TexturedMesh const render_mesh{

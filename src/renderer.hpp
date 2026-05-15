@@ -26,11 +26,11 @@ struct TextureDebugMaterial
 
 struct TexturedMeshGeometry
 {
-    GfxBuffer::Handle index{};
     GfxBuffer::Handle vertex{};
     GfxBuffer::Handle tex_map{};
-    isize index_count{};
+    GfxBuffer::Handle index{};
     isize vertex_count{};
+    isize index_count{};
 };
 
 struct TexturedMesh
